@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="bg">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Image Coordinate — снимка с GPS координати</title>
+    <meta
+      name="description"
+      content="Направи снимка с браузъра на телефона и виж GPS координатите, на които е направена."
+    />
+    <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Coordinates" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <style>
+      /* avoid a white flash before the module bundle applies tokens.css */
+      html { background: #0b1220; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Към съдържанието</a>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__dot" aria-hidden="true"></span>
+        <span class="brand__name">Image Coordinate</span>
+      </div>
+      <div class="chips">
+        <span id="status-camera" class="chip">камера: изключена</span>
+        <span id="status-gps" class="chip">GPS: няма fix</span>
+      </div>
+    </header>
+
+    <main id="main">
+      <p id="warn-secure" class="alert alert--error" role="alert" hidden>
+        Страницата не е в <strong>secure context</strong> (HTTPS). Камерата и GPS ще бъдат
+        блокирани — отвори приложението през <code>https://</code> или <code>localhost</code>.
+      </p>
+      <p id="warn-support" class="alert alert--warn" role="alert" hidden></p>
+
+      <section id="stage" class="stage" hidden>
+        <video id="video" class="stage__video" autoplay playsinline muted></video>
+        <div class="hud">
+          <p id="hud-coords" class="hud__coords">—</p>
+          <p class="hud__row">
+            <span id="hud-accuracy-dot" class="dot dot--unknown" aria-hidden="true"></span>
+            <span id="hud-accuracy">точност: —</span>
+            <span class="hud__sep">·</span>
+            <span id="hud-altitude">надм. височина: —</span>
+            <span class="hud__sep">·</span>
+            <span id="hud-fixage">fix: —</span>
+          </p>
+          <p id="hud-address" class="hud__address" hidden></p>
+        </div>
+
+        <div class="stage__controls">
+          <button id="btn-shutter" class="shutter" aria-label="Заснеми снимка"></button>
+          <div class="stage__side">
+            <button id="btn-switch" class="icon-btn" aria-label="Смени камерата">⟳</button>
+            <button id="btn-torch" class="icon-btn" aria-label="Светкавица" disabled>⚡</button>
+          </div>
+          <label class="zoom" for="zoom-range">
+            <span aria-hidden="true">⌕</span>
+            <input id="zoom-range" type="range" min="1" max="8" step="0.1" value="1" disabled />
+          </label>
+          <label class="toggle">
+            <input id="chk-watermark" type="checkbox" />
+            <span>воден знак с координати</span>
+          </label>
+        </div>
+      </section>
+
+      <section id="start" class="card">
+        <h1>Снимка с координати</h1>
+        <p class="card__lead">
+          Разреши камерата и GPS-а, за да виждаш координатите в реално време и да ги запишеш в
+          снимката (EXIF GPS).
+        </p>
+        <div class="actions">
+          <button id="btn-start" class="btn btn--primary">Разреши камера и GPS</button>
+          <button id="btn-native" class="btn">Снимай с нативната камера</button>
+        </div>
+        <p id="start-error" class="text-error" role="alert" hidden></p>
+        <details class="card__help">
+          <summary>Как работи и какви разрешения са нужни?</summary>
+          <ul>
+            <li>Всичко се обработва <strong>локално в браузъра</strong> — нищо не се качва на сървър.</li>
+            <li>GPS координатите се „заключват“ в момента на натискане на затвора.</li>
+            <li>На iPhone нативната камера дава най-висока резолюция и собствени EXIF данни.</li>
+            <li>Снимките се пазят на устройството (IndexedDB) и могат да се изтеглят или споделят.</li>
+          </ul>
+        </details>
+      </section>
+      <section id="review" class="review" hidden>
+        <h2>Резултат</h2>
+        <div class="review__grid">
+          <img id="review-photo" class="review__photo" alt="Заснетата снимка" />
+          <div class="review__body">
+            <ul id="review-meta" class="meta"></ul>
+            <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
+            <div class="actions">
+              <button id="btn-download" class="btn btn--primary">Изтегли</button>
+              <button id="btn-share" class="btn" hidden>Сподели</button>
+              <button id="btn-copy" class="btn">Копирай координати</button>
+              <button id="btn-osm" class="btn">Отвори в OSM</button>
+              <button id="btn-google" class="btn">Google Maps</button>
+              <button id="btn-save" class="btn">Запази в галерията</button>
+              <button id="btn-new" class="btn btn--ghost">Нова снимка</button>
+            </div>
+            <p id="review-note" class="hint"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="gallery" class="gallery" hidden>
+        <div class="gallery__head">
+          <h2>Галерия <span id="gallery-count" class="badge">0</span></h2>
+          <button id="btn-gallery-clear" class="btn btn--ghost">Изчисти</button>
+        </div>
+        <p id="gallery-empty" class="hint">Още няма запазени снимки на това устройство.</p>
+        <ul id="gallery-grid" class="grid"></ul>
+      </section>
+    </main>
+
+    <p class="attribution">
+      Карти и геокодиране: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+      contributors, <a href="https://nominatim.org/">Nominatim</a>. Координатите се обработват само
+      на устройството.
+    </p>
+
+    <input id="native-input" type="file" accept="image/*" capture="environment" hidden />
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <noscript>Това приложение изисква JavaScript.</noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

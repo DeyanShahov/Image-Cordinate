@@ -665,8 +665,8 @@ function init() {
   subscribe(renderAll);
 
   if (refs.chkWatermark) {
-    refs.chkWatermark.checked = false;
-    setState({ watermark: false });
+    refs.chkWatermark.checked = true;
+    setState({ watermark: true });
   }
 
   // Keeps the "fix преди N с" counter live without re-rendering on every event.

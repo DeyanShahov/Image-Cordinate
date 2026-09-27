@@ -38,7 +38,7 @@ const initialState = {
   /** Result of the last capture (photo blob, metadata, exif report). */
   result: null,
   /** Watermark toggle from the UI. */
-  watermark: false,
+  watermark: true,
   /** Video input devices that reported a label. */
   cameras: [],
   activeCameraId: null,

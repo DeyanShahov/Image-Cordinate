@@ -15,14 +15,6 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-export function downloadBoth(photoBlob, photoFilename, mapBlob, mapFilename) {
-  downloadBlob(photoBlob, photoFilename);
-  if (mapBlob && mapFilename) {
-    // Small delay to avoid browser blocking multiple downloads
-    setTimeout(() => downloadBlob(mapBlob, mapFilename), 150);
-  }
-}
-
 export function canShareFiles(file) {
   if (!file || typeof navigator.canShare !== 'function') return false;
   try {

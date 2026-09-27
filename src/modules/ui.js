@@ -78,6 +78,7 @@ export function createRefs(root = document) {
     map: pick('map'),
     reviewNote: pick('review-note'),
     btnDownload: pick('btn-download'),
+    btnDownloadMap: pick('btn-download-map'),
     btnShare: pick('btn-share'),
     btnCopy: pick('btn-copy'),
     btnOsm: pick('btn-osm'),
@@ -380,40 +381,34 @@ export function setZoomRange(refs, { min = 1, max = 1, step = 0.1, value = 1 } =
   refs.zoomRange.value = String(value);
 }
 
-/** Render map preview in review card */
+/** Render map preview in review card (the download buttons live in the actions row) */
 export function renderMapPreview(refs, mapUrl, mapFilename, mapBlob) {
   const container = refs.mapPreviewContainer;
   if (!container) return;
   
   if (mapUrl && mapBlob) {
-    container.innerHTML = '';
+    clear(container);
     container.append(
-      el('img', { src: mapUrl, alt: 'Миникарта на мястото', class: 'review__map-preview' }),
-      el('button', { 
-        class: 'btn btn--ghost btn--sm', 
-        onclick: () => {
-          if (mapBlob && mapFilename) {
-            import('../modules/share.js').then(share => share.downloadBlob(mapBlob, mapFilename));
-          }
-        } 
-      }, 'Изтегли карта')
+      el('img', { src: mapUrl, alt: 'Миникарта на мястото', class: 'review__map-preview' })
     );
     container.hidden = false;
   } else {
+    clear(container);
     container.hidden = true;
   }
 }
 
-/** Update download button to "Download Both" when map exists */
-export function updateDownloadButton(refs, hasMap, onDownloadBoth, onDownloadSingle) {
-  const btn = refs.btnDownload;
-  if (!btn) return;
-  
-  if (hasMap) {
-    btn.textContent = 'Изтегли и двете';
-    btn.onclick = onDownloadBoth;
-  } else {
-    btn.textContent = 'Изтегли';
-    btn.onclick = onDownloadSingle;
+/**
+ * Shows/hides the two download buttons.
+ * The photo button is always visible; the map button is shown when a map blob
+ * exists OR when the photo has a GPS fix (the map can then be captured on demand).
+ */
+export function updateDownloadButtons(refs, { hasMap = false, hasFix = false } = {}) {
+  if (refs.btnDownload) {
+    refs.btnDownload.textContent = 'Изтегли снимка';
+  }
+  if (refs.btnDownloadMap) {
+    setVisible(refs.btnDownloadMap, hasMap || hasFix);
+    refs.btnDownloadMap.textContent = 'Изтегли карта';
   }
 }

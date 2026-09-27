@@ -539,10 +539,6 @@
   display: block;
 }
 
-.review__map-preview-container > .btn {
-  margin: var(--space-2);
-}
-
 /* ------------- toast & footer ------------- */
 
 .toast {

@@ -407,11 +407,14 @@ function showResult(result, { device = null, address = getState().address } = {}
   }
   ui.setReviewNote(refs, notes.join(' '));
 
-  // Update state FIRST so downloadResult() reads the correct result
+  // Update state FIRST so the download handlers read the correct result
   setState({ result, phase: PHASES.REVIEW });
 
-  // NEW: Update download button for "Download Both" if map exists (AFTER state update)
-  ui.updateDownloadButton(refs, result.hasMap, () => downloadResult(), () => downloadResult());
+  // Show/hide the two download buttons (photo always; map when a blob exists or a fix allows on-demand capture)
+  ui.updateDownloadButtons(refs, {
+    hasMap: Boolean(result.hasMap && result.mapBlob),
+    hasFix: Boolean(result.fix && Number.isFinite(result.fix.latitude)),
+  });
 
   refs.review?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -450,17 +453,60 @@ function summaryText(result) {
   });
 }
 
-function downloadResult() {
+function downloadPhoto() {
+  const result = getState().result;
+  if (!result || !result.blob) return;
+
+  share.downloadBlob(result.blob, result.filename);
+  ui.showToast(refs, `Изтеглена снимка: ${result.filename}`, { timeout: 4000 });
+}
+
+/**
+ * Downloads ONLY the mini-map image to the device.
+ *
+ * Freshly captured photos have no map yet (it is normally created when saving to
+ * the gallery), so when there is a GPS fix we rasterise the on-screen map right
+ * now and keep it on the result for a later "Запази в галерията".
+ */
+async function downloadMap() {
   const result = getState().result;
   if (!result) return;
-  
-  if (result.hasMap && result.mapBlob && result.mapFilename) {
-    share.downloadBoth(result.blob, result.filename, result.mapBlob, result.mapFilename);
-    ui.showToast(refs, `Изтеглени: ${result.filename} + ${result.mapFilename}`, { timeout: 4000 });
-  } else {
-    share.downloadBlob(result.blob, result.filename);
-    ui.showToast(refs, `Изтеглено: ${result.filename}`, { timeout: 4000 });
+
+  let { mapBlob, mapFilename } = result;
+
+  // No map yet, but we know where the photo was taken - build it on demand.
+  if ((!mapBlob || !mapFilename) && result.fix && Number.isFinite(result.fix.latitude)) {
+    ui.setBusy(refs.btnDownloadMap, true, 'Генериране…');
+    let captured = null;
+    try {
+      captured = await captureMapForResult(result);
+    } finally {
+      ui.setBusy(refs.btnDownloadMap, false);
+    }
+
+    if (!captured) {
+      ui.showToast(refs, 'Миникартата не можа да се генерира.', { timeout: 4000 });
+      return;
+    }
+
+    mapBlob = captured.mapBlob;
+    mapFilename = captured.mapFilename;
+
+    // Keep it on the current result so "Запази в галерията" reuses this blob.
+    setState({ result: { ...result, ...captured } });
+    if (reviewMapUrl) URL.revokeObjectURL(reviewMapUrl);
+    reviewMapUrl = URL.createObjectURL(mapBlob);
+    ui.renderMapPreview(refs, reviewMapUrl, mapFilename, mapBlob);
+    ui.updateDownloadButtons(refs, { hasMap: true, hasFix: true });
   }
+
+  if (!mapBlob || !mapFilename) {
+    ui.showToast(refs, 'Няма миникарта за тази снимка (липсва GPS fix).', { timeout: 4000 });
+    return;
+  }
+
+  share.downloadBlob(mapBlob, mapFilename);
+  ui.showToast(refs, `Изтеглена карта: ${mapFilename}`, { timeout: 4000 });
 }
 
 async function shareResult() {
@@ -538,6 +584,56 @@ async function refreshGallery() {
   ui.renderGallery(refs, grouped, { onOpen: openGalleryItem, onDelete: deleteGalleryItem });
 }
 
+/**
+ * Captures the on-screen Leaflet mini-map into a WebP blob (with a GPS watermark
+ * burned into the pixels) and returns the map fields for a photo record.
+ *
+ * Used by both "Запази в галерията" and the on-demand "Изтегли карта" button, so a
+ * freshly taken photo can get its map without a round-trip through the gallery.
+ *
+ * @returns {Promise<{mapBlob: Blob, mapThumb: Blob|null, mapSize: number,
+ *                    mapFilename: string, hasMap: true}|null>}
+ */
+async function captureMapForResult(result) {
+  if (!result?.fix || !Number.isFinite(result.fix.latitude)) return null;
+
+  try {
+    // Make sure the Leaflet map is laid out and painted before we rasterise it.
+    if (refs.map && !refs.map.hidden) {
+      mapModule.invalidateSize();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    const capture = await mapCapture.captureMapAsBlob(
+      refs.map,
+      result.fix,
+      getState().address,
+      result.capturedAt,
+    );
+    if (!capture?.blob) {
+      console.warn('captureMapForResult: map capture returned no blob');
+      return null;
+    }
+
+    const mapBlob = capture.blob;
+    const mapThumb = await createThumbnail(mapBlob).catch((error) => {
+      console.warn('Map thumbnail creation failed:', error);
+      return null;
+    });
+
+    return {
+      mapBlob,
+      mapThumb,
+      mapSize: mapBlob.size,
+      mapFilename: `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}`,
+      hasMap: true,
+    };
+  } catch (error) {
+    console.error('captureMapForResult failed:', error);
+    return null;
+  }
+}
+
 async function saveToGallery() {
   const result = getState().result;
   if (!result) {
@@ -561,40 +657,26 @@ async function saveToGallery() {
       console.warn('Thumbnail creation failed:', e);
       return null;
     });
-    
-    // NEW: Capture mini-map if GPS fix exists
-    let mapBlob = null, mapThumb = null, mapFilename = null, mapSize = null;
-    if (result.fix && Number.isFinite(result.fix.latitude)) {
-      try {
-        // Ensure map is initialized and visible
-        if (refs.map && !refs.map.hidden) {
-          // Force map to update size in case it was hidden
-          mapModule.invalidateSize();
-          // Small delay to ensure map renders
-          await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Reuse an already captured map (e.g. the user pressed "Изтегли карта" first),
+    // otherwise capture it now if the shot has a GPS fix.
+    const existingMap = result.hasMap && result.mapBlob
+      ? {
+          mapBlob: result.mapBlob,
+          mapThumb: result.mapThumb ?? null,
+          mapSize: result.mapSize ?? result.mapBlob.size,
+          mapFilename: result.mapFilename,
+          hasMap: true,
         }
-        
-        const mapCaptureResult = await mapCapture.captureMapAsBlob(
-          refs.map, 
-          result.fix, 
-          getState().address, 
-          result.capturedAt
-        );
-        mapBlob = mapCaptureResult?.blob ?? null;
-        mapSize = mapBlob?.size ?? null;
-        mapFilename = mapBlob ? `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}` : null;
-        mapThumb = mapBlob ? await createThumbnail(mapBlob).catch((e) => {
-          console.warn('Map thumbnail creation failed:', e);
-          return null;
-        }) : null;
-        
-        if (!mapBlob) {
-          console.warn('Map capture returned null - check console for details');
-          ui.showToast(refs, 'Миникартата не бе генерирана (виж конзолата за детайли)', { timeout: 4000 });
-        }
-      } catch (e) {
-        console.error('Map capture failed:', e);
-        ui.showToast(refs, 'Грешка при генериране на миникарта: ' + e.message, { timeout: 4000 });
+      : null;
+
+    let mapFields = existingMap;
+    if (!mapFields) {
+      mapFields = await captureMapForResult(result);
+      if (!mapFields && result.fix && Number.isFinite(result.fix.latitude)) {
+        ui.showToast(refs, 'Миникартата не бе генерирана (виж конзолата за детайли)', {
+          timeout: 4000,
+        });
       }
     }
 
@@ -614,14 +696,14 @@ async function saveToGallery() {
       size: result.size,
       blob: result.blob,
       thumb,
-      // NEW MAP FIELDS:
-      mapBlob,
-      mapThumb,
-      mapFilename,
-      mapSize,
-      hasMap: Boolean(mapBlob),
+      // Map fields (null when there is no fix / the capture failed)
+      mapBlob: mapFields?.mapBlob ?? null,
+      mapThumb: mapFields?.mapThumb ?? null,
+      mapFilename: mapFields?.mapFilename ?? null,
+      mapSize: mapFields?.mapSize ?? null,
+      hasMap: Boolean(mapFields?.mapBlob),
     };
-    
+
     console.log('Saving photo record:', {
       id: photoRecord.id,
       filename: photoRecord.filename,
@@ -631,10 +713,10 @@ async function saveToGallery() {
       hasMap: photoRecord.hasMap,
       mapBlobSize: photoRecord.mapBlob?.size,
     });
-    
+
     await storage.savePhoto(photoRecord);
     await refreshGallery();
-    ui.showToast(refs, 'Снимката' + (mapBlob ? ' и картата' : '') + ' са запазени в галерията.');
+    ui.showToast(refs, 'Снимката' + (mapFields?.mapBlob ? ' и картата' : '') + ' са запазени в галерията.');
   } catch (error) {
     console.error('saveToGallery error:', error);
     ui.showToast(refs, error instanceof Error ? error.message : 'Запазването не успя.');
@@ -675,6 +757,7 @@ function openGalleryItem(record) {
       },
       // NEW: Map data
       mapBlob: record.mapBlob ?? null,
+      mapThumb: record.mapThumb ?? null,
       mapFilename: record.mapFilename ?? null,
       mapSize: record.mapSize ?? null,
       hasMap: Boolean(record.hasMap),
@@ -730,7 +813,8 @@ function wireEvents() {
     setState({ watermark: refs.chkWatermark.checked });
   });
 
-  refs.btnDownload?.addEventListener('click', () => downloadResult());
+  refs.btnDownload?.addEventListener('click', () => downloadPhoto());
+  refs.btnDownloadMap?.addEventListener('click', () => void downloadMap());
   refs.btnShare?.addEventListener('click', () => void shareResult());
   refs.btnCopy?.addEventListener('click', () => void copyCoordinates());
   refs.btnSave?.addEventListener('click', () => void saveToGallery());

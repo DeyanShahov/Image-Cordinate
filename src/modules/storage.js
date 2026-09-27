@@ -4,6 +4,7 @@
  */
 
 import { createStore, entries, get, set, del, clear } from 'idb-keyval';
+import { groupByWeekAndDay } from '../utils/date.js';
 
 const DB_NAME = 'image-coordinate';
 const PHOTO_STORE = 'photos';
@@ -66,6 +67,12 @@ export async function listPhotos() {
     .map(([, value]) => value)
     .filter(Boolean)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+}
+
+/** Returns photos grouped by week and day for gallery UI */
+export async function listPhotosGrouped() {
+  const photos = await listPhotos();
+  return groupByWeekAndDay(photos);
 }
 
 export async function getPhoto(id) {

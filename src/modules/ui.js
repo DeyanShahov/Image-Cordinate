@@ -13,6 +13,40 @@ import {
 } from '../utils/coords.js';
 import { CAMERA_STATES, GPS_STATES } from '../state.js';
 
+// Session storage key for collapsed day states
+const COLLAPSED_DAYS_KEY = 'gallery-collapsed-days';
+
+/** Get set of collapsed dateKeys from sessionStorage */
+function getCollapsedDays() {
+  try {
+    const stored = sessionStorage.getItem(COLLAPSED_DAYS_KEY);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/** Save collapsed dateKeys to sessionStorage */
+function saveCollapsedDays(collapsed) {
+  try {
+    sessionStorage.setItem(COLLAPSED_DAYS_KEY, JSON.stringify(Array.from(collapsed)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Toggle collapsed state for a dateKey */
+function toggleCollapsed(dateKey) {
+  const collapsed = getCollapsedDays();
+  if (collapsed.has(dateKey)) {
+    collapsed.delete(dateKey);
+  } else {
+    collapsed.add(dateKey);
+  }
+  saveCollapsedDays(collapsed);
+  return collapsed.has(dateKey);
+}
+
 export function createRefs(root = document) {
   const pick = (id) => root.getElementById(id);
   return {
@@ -194,70 +228,127 @@ export function setVisible(node, visible) {
   node.hidden = !visible;
 }
 
-export function renderGallery(refs, items, { onOpen, onDelete } = {}) {
+/**
+ * Renders the gallery with photos grouped by week and day.
+ * @param {HTMLElement} refs.galleryGrid - Container element
+ * @param {Array} weeks - Grouped data from storage.listPhotosGrouped()
+ * @param {Function} onOpen - Callback when photo tile clicked
+ * @param {Function} onDelete - Callback when delete button clicked
+ */
+export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
   if (!refs.galleryGrid) return;
   clear(refs.galleryGrid);
-  setText(refs.galleryCount, String(items.length));
-  show(refs.galleryEmpty, items.length === 0);
+  
+  // Total count across all weeks
+  const totalCount = weeks.reduce((sum, week) => 
+    sum + week.days.reduce((dSum, day) => dSum + day.count, 0), 0);
+  setText(refs.galleryCount, String(totalCount));
+  show(refs.galleryEmpty, totalCount === 0);
 
-  for (const item of items) {
-    const subtitle = Number.isFinite(item.latitude)
-      ? `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`
-      : 'без координати';
-    
-    const hasMap = Boolean(item.hasMap && item.mapThumbUrl);
+  const collapsedDays = getCollapsedDays();
+  const todayKey = getTodayKey();
 
-    refs.galleryGrid.append(
-      el(
-        'li',
-        { class: 'tile' + (hasMap ? ' tile--has-map' : '') },
-        el(
-          'button',
-          {
-            class: 'tile__btn',
-            type: 'button',
-            title: 'Отвори',
-            onclick: () => onOpen?.(item),
-          },
-          // Photo thumbnail (left)
-          el('div', { class: 'tile__media tile__media--photo' },
-            el('img', {
-              class: 'tile__img',
-              src: item.thumbUrl ?? item.url ?? '',
-              alt: 'Запазена снимка',
-              loading: 'lazy',
-            })
-          ),
-          // Map thumbnail (right) - NEW
-          hasMap ? el('div', { class: 'tile__media tile__media--map' },
-            el('img', {
-              class: 'tile__img tile__img--map',
-              src: item.mapThumbUrl,
-              alt: 'Миникарта',
-              loading: 'lazy',
-            }),
-            el('span', { class: 'tile__map-badge', 'aria-hidden': 'true' }, '🗺️')
-          ) : null,
-        ),
-        el('span', { class: 'tile__meta', text: subtitle }),
-        el('span', {
-          class: 'tile__meta',
-          text: `${formatDateTime(new Date(item.createdAt))} · ${formatBytes(item.size ?? 0)}`,
-        }),
-        el('button', {
-          class: 'tile__del',
-          type: 'button',
-          title: 'Изтрий',
-          'aria-label': 'Изтрий снимката',
-          text: '✕',
-          onclick: (event) => {
-            event.stopPropagation();
-            onDelete?.(item);
-          },
-        }),
+  for (const week of weeks) {
+    const weekEl = el('section', { class: 'gallery-week' },
+      // Week header
+      el('header', { class: 'gallery-week__header' },
+        el('span', { class: 'gallery-week__label', text: week.weekLabel }),
+        el('span', { class: 'gallery-week__count', text: `${week.days.reduce((s, d) => s + d.count, 0)} снимки` })
       ),
+      // Days container
+      el('div', { class: 'gallery-week__days' },
+        ...week.days.map(day => {
+          const isCollapsed = collapsedDays.has(day.dateKey);
+          const isToday = day.isToday;
+          
+          return el('article', { 
+            class: `gallery-day${isCollapsed ? ' gallery-day--collapsed' : ''}${isToday ? ' gallery-day--today' : ''}`,
+            'data-date': day.dateKey,
+          },
+            // Day header (clickable to toggle)
+            el('header', { 
+              class: 'gallery-day__header',
+              onclick: (e) => {
+                e.stopPropagation();
+                const newCollapsed = toggleCollapsed(day.dateKey);
+                const dayEl = e.currentTarget.closest('.gallery-day');
+                dayEl.classList.toggle('gallery-day--collapsed', newCollapsed);
+              }
+            },
+              el('div', { class: 'gallery-day__info' },
+                el('span', { class: 'gallery-day__label', text: day.dayLabel }),
+                isToday && el('span', { class: 'gallery-day__today-badge', text: 'Днес', 'aria-label': 'Днес' })
+              ),
+              el('span', { class: 'gallery-day__count', text: `${day.count} снимки` }),
+              el('span', { class: 'gallery-day__toggle', 'aria-hidden': 'true', text: isCollapsed ? '▼' : '▲' })
+            ),
+            // Day photos grid
+            el('div', { class: 'gallery-day__grid' },
+              ...day.photos.map(item => {
+                const subtitle = Number.isFinite(item.latitude)
+                  ? `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`
+                  : 'без координати';
+                
+                const hasMap = Boolean(item.hasMap && item.mapThumbUrl);
+
+                return el('li', { class: 'tile' + (hasMap ? ' tile--has-map' : '') },
+                  el('button', {
+                    class: 'tile__btn',
+                    type: 'button',
+                    title: 'Отвори',
+                    onclick: () => onOpen?.(item),
+                  },
+                    // Photo thumbnail (left)
+                    el('div', { class: 'tile__media tile__media--photo' },
+                      el('img', {
+                        class: 'tile__img',
+                        src: item.thumbUrl ?? item.url ?? '',
+                        alt: 'Запазена снимка',
+                        loading: 'lazy',
+                      })
+                    ),
+                    // Map thumbnail (right) - NEW
+                    hasMap ? el('div', { class: 'tile__media tile__media--map' },
+                      el('img', {
+                        class: 'tile__img tile__img--map',
+                        src: item.mapThumbUrl,
+                        alt: 'Миникарта',
+                        loading: 'lazy',
+                      }),
+                      el('span', { class: 'tile__map-badge', 'aria-hidden': 'true' }, '🗺️')
+                    ) : null,
+                  ),
+                  el('span', { class: 'tile__meta', text: subtitle }),
+                  el('span', {
+                    class: 'tile__meta',
+                    text: `${formatDateTime(new Date(item.createdAt))} · ${formatBytes(item.size ?? 0)}`,
+                  }),
+                  el('button', {
+                    class: 'tile__del',
+                    type: 'button',
+                    title: 'Изтрий',
+                    'aria-label': 'Изтрий снимката',
+                    text: '✕',
+                    onclick: (event) => {
+                      event.stopPropagation();
+                      onDelete?.(item);
+                    },
+                  }),
+                );
+              })
+            )
+          );
+        })
+      )
     );
+    refs.galleryGrid.append(weekEl);
   }
+}
+
+/** Get today's date key for highlighting */
+function getTodayKey() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 }
 
 export function setTorchAvailable(refs, available) {

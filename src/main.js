@@ -511,10 +511,12 @@ function revokeGalleryUrls() {
 
 async function refreshGallery() {
   if (!storage.isAvailable()) return;
-  const records = await storage.listPhotos();
+  const grouped = await storage.listPhotosGrouped();
 
   revokeGalleryUrls();
-  for (const record of records) {
+  // Flatten for URL management (keep backward compatibility for openGalleryItem)
+  const allRecords = grouped.flatMap(week => week.days.flatMap(day => day.photos));
+  for (const record of allRecords) {
     const photo = URL.createObjectURL(record.blob);
     const thumb = record.thumb ? URL.createObjectURL(record.thumb) : photo;
     
@@ -533,12 +535,21 @@ async function refreshGallery() {
   }
 
   ui.setGalleryVisible(refs, true);
-  ui.renderGallery(refs, records, { onOpen: openGalleryItem, onDelete: deleteGalleryItem });
+  ui.renderGallery(refs, grouped, { onOpen: openGalleryItem, onDelete: deleteGalleryItem });
 }
 
 async function saveToGallery() {
   const result = getState().result;
-  if (!result) return;
+  if (!result) {
+    console.error('saveToGallery: no result in state');
+    ui.showToast(refs, 'Няма снимка за запазване.');
+    return;
+  }
+  if (!result.blob) {
+    console.error('saveToGallery: result.blob is missing', result);
+    ui.showToast(refs, 'Грешка: липсва файла на снимката.');
+    return;
+  }
   if (!storage.isAvailable()) {
     ui.showToast(refs, 'IndexedDB не е достъпен — запазването е невъзможно.');
     return;
@@ -546,7 +557,10 @@ async function saveToGallery() {
 
   ui.setBusy(refs.btnSave, true, 'Запазване…');
   try {
-    const thumb = await createThumbnail(result.blob).catch(() => null);
+    const thumb = await createThumbnail(result.blob).catch((e) => {
+      console.warn('Thumbnail creation failed:', e);
+      return null;
+    });
     
     // NEW: Capture mini-map if GPS fix exists
     let mapBlob = null, mapThumb = null, mapFilename = null, mapSize = null;
@@ -569,7 +583,10 @@ async function saveToGallery() {
         mapBlob = mapCaptureResult?.blob ?? null;
         mapSize = mapBlob?.size ?? null;
         mapFilename = mapBlob ? `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}` : null;
-        mapThumb = mapBlob ? await createThumbnail(mapBlob).catch(() => null) : null;
+        mapThumb = mapBlob ? await createThumbnail(mapBlob).catch((e) => {
+          console.warn('Map thumbnail creation failed:', e);
+          return null;
+        }) : null;
         
         if (!mapBlob) {
           console.warn('Map capture returned null - check console for details');
@@ -581,7 +598,7 @@ async function saveToGallery() {
       }
     }
 
-    await storage.savePhoto({
+    const photoRecord = {
       id: globalThis.crypto?.randomUUID?.() ?? `photo-${Date.now()}`,
       createdAt: result.capturedAt.getTime(),
       latitude: result.fix?.latitude ?? null,
@@ -603,10 +620,23 @@ async function saveToGallery() {
       mapFilename,
       mapSize,
       hasMap: Boolean(mapBlob),
+    };
+    
+    console.log('Saving photo record:', {
+      id: photoRecord.id,
+      filename: photoRecord.filename,
+      hasBlob: !!photoRecord.blob,
+      blobType: photoRecord.blob?.type,
+      blobSize: photoRecord.blob?.size,
+      hasMap: photoRecord.hasMap,
+      mapBlobSize: photoRecord.mapBlob?.size,
     });
+    
+    await storage.savePhoto(photoRecord);
     await refreshGallery();
     ui.showToast(refs, 'Снимката' + (mapBlob ? ' и картата' : '') + ' са запазени в галерията.');
   } catch (error) {
+    console.error('saveToGallery error:', error);
     ui.showToast(refs, error instanceof Error ? error.message : 'Запазването не успя.');
   } finally {
     ui.setBusy(refs.btnSave, false);

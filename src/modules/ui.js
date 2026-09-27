@@ -239,9 +239,16 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
   if (!refs.galleryGrid) return;
   clear(refs.galleryGrid);
   
+  // Defensive: ensure weeks is an array
+  if (!Array.isArray(weeks) || weeks.length === 0) {
+    setText(refs.galleryCount, '0');
+    show(refs.galleryEmpty, true);
+    return;
+  }
+  
   // Total count across all weeks
   const totalCount = weeks.reduce((sum, week) => 
-    sum + week.days.reduce((dSum, day) => dSum + day.count, 0), 0);
+    sum + (week.days?.reduce((dSum, day) => dSum + (day.count ?? 0), 0) ?? 0), 0);
   setText(refs.galleryCount, String(totalCount));
   show(refs.galleryEmpty, totalCount === 0);
 
@@ -249,15 +256,21 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
   const todayKey = getTodayKey();
 
   for (const week of weeks) {
+    // Defensive: skip invalid week entries
+    if (!week || !Array.isArray(week.days)) continue;
+    
     const weekEl = el('section', { class: 'gallery-week' },
       // Week header
       el('header', { class: 'gallery-week__header' },
-        el('span', { class: 'gallery-week__label', text: week.weekLabel }),
-        el('span', { class: 'gallery-week__count', text: `${week.days.reduce((s, d) => s + d.count, 0)} снимки` })
+        el('span', { class: 'gallery-week__label', text: week.weekLabel ?? 'Неизвестна седмица' }),
+        el('span', { class: 'gallery-week__count', text: `${week.days.reduce((s, d) => s + (d.count ?? 0), 0)} снимки` })
       ),
       // Days container
       el('div', { class: 'gallery-week__days' },
         ...week.days.map(day => {
+          // Defensive: skip invalid day entries
+          if (!day || !Array.isArray(day.photos)) return null;
+          
           const isCollapsed = collapsedDays.has(day.dateKey);
           const isToday = day.isToday;
           
@@ -276,15 +289,18 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
               }
             },
               el('div', { class: 'gallery-day__info' },
-                el('span', { class: 'gallery-day__label', text: day.dayLabel }),
+                el('span', { class: 'gallery-day__label', text: day.dayLabel ?? 'Неизвестен ден' }),
                 isToday && el('span', { class: 'gallery-day__today-badge', text: 'Днес', 'aria-label': 'Днес' })
               ),
-              el('span', { class: 'gallery-day__count', text: `${day.count} снимки` }),
+              el('span', { class: 'gallery-day__count', text: `${day.count ?? 0} снимки` }),
               el('span', { class: 'gallery-day__toggle', 'aria-hidden': 'true', text: isCollapsed ? '▼' : '▲' })
             ),
             // Day photos grid
             el('div', { class: 'gallery-day__grid' },
               ...day.photos.map(item => {
+                // Defensive: skip invalid photo entries
+                if (!item || !item.blob) return null;
+                
                 const subtitle = Number.isFinite(item.latitude)
                   ? `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`
                   : 'без координати';
@@ -335,10 +351,10 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
                     },
                   }),
                 );
-              })
+              }).filter(Boolean) // Filter out any null entries from defensive checks
             )
           );
-        })
+        }).filter(Boolean) // Filter out any null entries from defensive checks
       )
     );
     refs.galleryGrid.append(weekEl);

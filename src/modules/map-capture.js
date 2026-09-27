@@ -26,22 +26,46 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
-  if (!mapContainer || !fix) return null;
+  if (!mapContainer || !fix) {
+    console.warn('captureMapAsBlob: missing mapContainer or fix', { mapContainer: !!mapContainer, fix: !!fix });
+    return null;
+  }
+
+  // Check if map container has leaflet map
+  if (!mapContainer._leaflet_id && !mapContainer.querySelector('.leaflet-container')) {
+    console.warn('captureMapAsBlob: mapContainer does not appear to be a Leaflet map container', mapContainer);
+    // Try to find the leaflet container inside
+    const leafletContainer = mapContainer.querySelector('.leaflet-container');
+    if (leafletContainer) {
+      console.log('Found leaflet container inside, using that');
+      mapContainer = leafletContainer;
+    }
+  }
 
   // 1. Use leaflet-image to render map to canvas
   let leafletImage;
   try {
     const module = await import('leaflet-image');
     leafletImage = module.default ?? module;
+    console.log('leaflet-image loaded successfully');
   } catch (e) {
     console.error('leaflet-image failed to load:', e);
     return null;
   }
 
+  // Wait for map tiles to load
+  await new Promise(resolve => setTimeout(resolve, 500));
+
   const canvas = await new Promise((resolve, reject) => {
+    console.log('Calling leaflet-image on container:', mapContainer);
     leafletImage(mapContainer, (err, canvas) => {
-      if (err) reject(err);
-      else resolve(canvas);
+      if (err) {
+        console.error('leaflet-image error:', err);
+        reject(err);
+      } else {
+        console.log('leaflet-image success, canvas size:', canvas.width, 'x', canvas.height);
+        resolve(canvas);
+      }
     });
   });
 
@@ -52,7 +76,10 @@ export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
   
   const finalCanvas = createCanvas(width, height);
   const ctx = finalCanvas.getContext('2d');
-  if (!ctx) return null;
+  if (!ctx) {
+    console.error('Failed to get canvas 2d context');
+    return null;
+  }
   ctx.drawImage(canvas, 0, 0, width, height);
 
   // 3. Add compact GPS watermark (bottom-right, semi-transparent)
@@ -97,6 +124,7 @@ export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
 
   // 4. Convert to WebP blob
   const webpBlob = await canvasToBlob(finalCanvas, 'image/webp', MAP_WEBP_QUALITY);
+  console.log('Map capture complete, blob size:', webpBlob.size, 'bytes');
   
   return {
     blob: webpBlob,

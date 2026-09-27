@@ -550,19 +550,32 @@ async function saveToGallery() {
     let mapBlob = null, mapThumb = null, mapFilename = null, mapSize = null;
     if (result.fix && Number.isFinite(result.fix.latitude)) {
       try {
+        // Ensure map is initialized and visible
+        if (refs.map && !refs.map.hidden) {
+          // Force map to update size in case it was hidden
+          mapModule.invalidateSize();
+          // Small delay to ensure map renders
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
         const mapCaptureResult = await mapCapture.captureMapAsBlob(
           refs.map, 
           result.fix, 
           getState().address, 
           result.capturedAt
         );
-        mapBlob = mapCaptureResult.blob;
-        mapSize = mapBlob.size;
-        mapFilename = `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}`;
-        mapThumb = await createThumbnail(mapBlob).catch(() => null);
+        mapBlob = mapCaptureResult?.blob ?? null;
+        mapSize = mapBlob?.size ?? null;
+        mapFilename = mapBlob ? `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}` : null;
+        mapThumb = mapBlob ? await createThumbnail(mapBlob).catch(() => null) : null;
+        
+        if (!mapBlob) {
+          console.warn('Map capture returned null - check console for details');
+          ui.showToast(refs, 'Миникартата не бе генерирана (виж конзолата за детайли)', { timeout: 4000 });
+        }
       } catch (e) {
-        console.warn('Map capture failed:', e);
-        ui.showToast(refs, 'Миникартата не бе записана: ' + e.message, { timeout: 3000 });
+        console.error('Map capture failed:', e);
+        ui.showToast(refs, 'Грешка при генериране на миникарта: ' + e.message, { timeout: 4000 });
       }
     }
 

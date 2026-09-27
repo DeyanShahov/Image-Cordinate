@@ -398,9 +398,6 @@ function showResult(result, { device = null, address = getState().address } = {}
     ui.renderMapPreview(refs, null, null, null);
   }
 
-  // NEW: Update download button for "Download Both" if map exists
-  ui.updateDownloadButton(refs, result.hasMap, () => downloadResult(), () => downloadResult());
-
   const notes = [];
   if (!result.fix) notes.push('Няма GPS fix — файлът е записан без координати.');
   if (!result.exif.applied) notes.push(`EXIF: ${result.exif.reason}`);
@@ -410,7 +407,12 @@ function showResult(result, { device = null, address = getState().address } = {}
   }
   ui.setReviewNote(refs, notes.join(' '));
 
+  // Update state FIRST so downloadResult() reads the correct result
   setState({ result, phase: PHASES.REVIEW });
+
+  // NEW: Update download button for "Download Both" if map exists (AFTER state update)
+  ui.updateDownloadButton(refs, result.hasMap, () => downloadResult(), () => downloadResult());
+
   refs.review?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

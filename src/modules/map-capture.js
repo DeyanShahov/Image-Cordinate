@@ -1,10 +1,11 @@
 /**
- * Captures Leaflet map as WebP image with GPS watermark.
+ * Captures Leaflet map as WebP image with GPS watermark using html2canvas.
  * Called at gallery-save time only.
  */
 
 import { canvasToBlob, createCanvas } from '../utils/image.js';
 import { formatAccuracy, formatDateTime, formatDecimal } from '../utils/coords.js';
+import html2canvas from 'html2canvas';
 
 const MAP_MAX_DIMENSION = 512;  // Cap for cloud upload efficiency
 const MAP_WEBP_QUALITY = 0.82;  // Good quality/size balance
@@ -31,45 +32,38 @@ export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
     return null;
   }
 
-  // Check if map container has leaflet map
-  if (!mapContainer._leaflet_id && !mapContainer.querySelector('.leaflet-container')) {
-    console.warn('captureMapAsBlob: mapContainer does not appear to be a Leaflet map container', mapContainer);
-    // Try to find the leaflet container inside
-    const leafletContainer = mapContainer.querySelector('.leaflet-container');
-    if (leafletContainer) {
-      console.log('Found leaflet container inside, using that');
-      mapContainer = leafletContainer;
-    }
-  }
+  // Find the actual leaflet map container (.leaflet-container)
+  const leafletContainer = mapContainer.querySelector('.leaflet-container') || mapContainer;
+  console.log('Capturing map from container:', leafletContainer);
 
-  // 1. Use leaflet-image to render map to canvas
-  let leafletImage;
+  // Ensure map tiles have loaded
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Capture with html2canvas
+  let canvas;
   try {
-    const module = await import('leaflet-image');
-    leafletImage = module.default ?? module;
-    console.log('leaflet-image loaded successfully');
+    console.log('Starting html2canvas capture...');
+    canvas = await html2canvas(leafletContainer, {
+      useCORS: true,              // Enable CORS for tile images
+      allowTaint: false,          // Don't taint canvas with cross-origin images
+      scale: window.devicePixelRatio || 1,  // High-DPI support
+      logging: true,              // Debug logging
+      backgroundColor: null,      // Transparent background
+      width: leafletContainer.offsetWidth,
+      height: leafletContainer.offsetHeight,
+    });
+    console.log('html2canvas success, canvas size:', canvas.width, 'x', canvas.height);
   } catch (e) {
-    console.error('leaflet-image failed to load:', e);
+    console.error('html2canvas capture failed:', e);
     return null;
   }
 
-  // Wait for map tiles to load
-  await new Promise(resolve => setTimeout(resolve, 500));
+  if (!canvas || canvas.width === 0 || canvas.height === 0) {
+    console.error('html2canvas returned empty canvas');
+    return null;
+  }
 
-  const canvas = await new Promise((resolve, reject) => {
-    console.log('Calling leaflet-image on container:', mapContainer);
-    leafletImage(mapContainer, (err, canvas) => {
-      if (err) {
-        console.error('leaflet-image error:', err);
-        reject(err);
-      } else {
-        console.log('leaflet-image success, canvas size:', canvas.width, 'x', canvas.height);
-        resolve(canvas);
-      }
-    });
-  });
-
-  // 2. Resize if needed (cap at MAP_MAX_DIMENSION)
+  // Resize if needed (cap at MAP_MAX_DIMENSION)
   const scale = Math.min(1, MAP_MAX_DIMENSION / Math.max(canvas.width, canvas.height));
   const width = Math.round(canvas.width * scale);
   const height = Math.round(canvas.height * scale);
@@ -82,7 +76,7 @@ export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
   }
   ctx.drawImage(canvas, 0, 0, width, height);
 
-  // 3. Add compact GPS watermark (bottom-right, semi-transparent)
+  // Add compact GPS watermark (bottom-right, semi-transparent)
   if (Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude)) {
     const padding = Math.round(width * 0.025);
     const fontSize = Math.max(11, Math.round(width / 45));
@@ -122,7 +116,7 @@ export async function captureMapAsBlob(mapContainer, fix, address, capturedAt) {
     ctx.restore();
   }
 
-  // 4. Convert to WebP blob
+  // Convert to WebP blob
   const webpBlob = await canvasToBlob(finalCanvas, 'image/webp', MAP_WEBP_QUALITY);
   console.log('Map capture complete, blob size:', webpBlob.size, 'bytes');
   

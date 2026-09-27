@@ -34,6 +34,7 @@ export function ensureMap(container) {
     attributionControl: true,
     scrollWheelZoom: true,
     worldCopyJump: true,
+    preferCanvas: true,  // Required for html2canvas to capture vector layers (markers, circles)
   });
 
   L.tileLayer(TILE_URL, {

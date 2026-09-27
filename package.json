@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "exifr": "^7.1.3",
+    "html2canvas": "^1.4.1",
     "idb-keyval": "^6.3.0",
     "leaflet": "^1.9.4",
-    "leaflet-image": "^1.2.0",
     "piexif-ts": "^2.1.0"
   },
   "devDependencies": {

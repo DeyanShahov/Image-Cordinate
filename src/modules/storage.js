@@ -25,7 +25,32 @@ export function isAvailable() {
   return typeof indexedDB !== 'undefined';
 }
 
-/** @param {object} record PhotoRecord (see gallery in main.js) */
+/**
+ * @typedef {object} PhotoRecord
+ * @property {string} id
+ * @property {number} createdAt
+ * @property {number|null} latitude
+ * @property {number|null} longitude
+ * @property {number|null} accuracy
+ * @property {number|null} altitude
+ * @property {string|null} address
+ * @property {string} source
+ * @property {boolean} watermarked
+ * @property {boolean} exifApplied
+ * @property {boolean} gpsWritten
+ * @property {string} filename           // "IMG_20260925_101112_41.887234_24.712345.jpg"
+ * @property {number} size
+ * @property {Blob} blob
+ * @property {Blob|null} thumb
+ * // NEW map fields:
+ * @property {Blob|null} mapBlob         // WebP map image
+ * @property {Blob|null} mapThumb        // Map thumbnail
+ * @property {string|null} mapFilename   // "MAP_IMG_20260925_101112_41.887234_24.712345.webp"
+ * @property {number|null} mapSize
+ * @property {boolean} hasMap
+ */
+
+/** @param {PhotoRecord} record */
 export async function savePhoto(record) {
   const target = stores();
   if (!target) throw new Error('IndexedDB не е достъпен (частен режим?).');

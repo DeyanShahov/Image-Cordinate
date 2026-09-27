@@ -435,6 +435,59 @@
   padding: 0;
 }
 
+/* NEW: Side-by-side photo + map thumbnails */
+.tile--has-map .tile__btn {
+  display: flex;
+  gap: 4px;
+}
+
+.tile__media {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.tile__media--photo {
+  aspect-ratio: 4/3;
+}
+
+.tile__media--map {
+  aspect-ratio: 1/1;
+  max-width: 40%;
+}
+
+.tile__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.tile__img--map {
+  border-radius: 4px;
+}
+
+.tile__map-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 10px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+@media (max-width: 480px) {
+  .tile--has-map .tile__btn {
+    flex-direction: column;
+  }
+  .tile__media--map {
+    max-width: 100%;
+    aspect-ratio: 1/1;
+  }
+}
+
 .tile__btn {
   display: block;
   width: 100%;
@@ -468,6 +521,26 @@
   background: rgb(0 0 0 / 55%);
   color: #fff;
   font-size: 0.85rem;
+}
+
+/* Map preview in review card */
+.review__map-preview-container {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.review__map-preview {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  display: block;
+}
+
+.review__map-preview-container > .btn {
+  margin: var(--space-2);
 }
 
 /* ------------- toast & footer ------------- */

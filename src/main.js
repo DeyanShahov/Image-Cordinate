@@ -30,6 +30,7 @@ import * as exif from './modules/exif.js';
 import { reverseGeocode } from './modules/geocode.js';
 import * as geo from './modules/geolocation.js';
 import * as mapModule from './modules/map.js';
+import * as mapCapture from './modules/map-capture.js';
 import { pickPhotoFile, readDeviceMetadata } from './modules/native-capture.js';
 import * as share from './modules/share.js';
 import * as storage from './modules/storage.js';
@@ -46,6 +47,8 @@ let geocodeTimer = null;
 let lastGeocodeKey = null;
 /** Object URL of the photo currently shown in the review card. */
 let reviewUrl = null;
+/** Object URL of the map currently shown in the review card. */
+let reviewMapUrl = null;
 /** Object URLs handed to the gallery grid (revoked on every refresh). */
 const galleryUrls = new Map();
 
@@ -386,6 +389,18 @@ function showResult(result, { device = null, address = getState().address } = {}
     show(refs.map, false);
   }
 
+  // NEW: Handle map preview in review card
+  if (reviewMapUrl) URL.revokeObjectURL(reviewMapUrl);
+  if (result.hasMap && result.mapBlob) {
+    reviewMapUrl = URL.createObjectURL(result.mapBlob);
+    ui.renderMapPreview(refs, reviewMapUrl, result.mapFilename, result.mapBlob);
+  } else {
+    ui.renderMapPreview(refs, null, null, null);
+  }
+
+  // NEW: Update download button for "Download Both" if map exists
+  ui.updateDownloadButton(refs, result.hasMap, () => downloadResult(), () => downloadResult());
+
   const notes = [];
   if (!result.fix) notes.push('Няма GPS fix — файлът е записан без координати.');
   if (!result.exif.applied) notes.push(`EXIF: ${result.exif.reason}`);
@@ -404,9 +419,14 @@ function clearResult() {
     URL.revokeObjectURL(reviewUrl);
     reviewUrl = null;
   }
+  if (reviewMapUrl) {
+    URL.revokeObjectURL(reviewMapUrl);
+    reviewMapUrl = null;
+  }
   ui.setReviewVisible(refs, false);
   ui.renderMeta(refs, []);
   ui.setReviewNote(refs, null);
+  ui.renderMapPreview(refs, null, null, null);
   setState({ result: null, phase: PHASES.LIVE });
 }
 
@@ -431,8 +451,14 @@ function summaryText(result) {
 function downloadResult() {
   const result = getState().result;
   if (!result) return;
-  share.downloadBlob(result.blob, result.filename);
-  ui.showToast(refs, `Изтеглено: ${result.filename}`, { timeout: 4000 });
+  
+  if (result.hasMap && result.mapBlob && result.mapFilename) {
+    share.downloadBoth(result.blob, result.filename, result.mapBlob, result.mapFilename);
+    ui.showToast(refs, `Изтеглени: ${result.filename} + ${result.mapFilename}`, { timeout: 4000 });
+  } else {
+    share.downloadBlob(result.blob, result.filename);
+    ui.showToast(refs, `Изтеглено: ${result.filename}`, { timeout: 4000 });
+  }
 }
 
 async function shareResult() {
@@ -474,6 +500,9 @@ function revokeGalleryUrls() {
   for (const urls of galleryUrls.values()) {
     URL.revokeObjectURL(urls.photo);
     if (urls.thumb && urls.thumb !== urls.photo) URL.revokeObjectURL(urls.thumb);
+    // NEW: Revoke map URLs
+    if (urls.mapPhoto) URL.revokeObjectURL(urls.mapPhoto);
+    if (urls.mapThumb && urls.mapThumb !== urls.mapPhoto) URL.revokeObjectURL(urls.mapThumb);
   }
   galleryUrls.clear();
 }
@@ -486,9 +515,19 @@ async function refreshGallery() {
   for (const record of records) {
     const photo = URL.createObjectURL(record.blob);
     const thumb = record.thumb ? URL.createObjectURL(record.thumb) : photo;
-    galleryUrls.set(record.id, { photo, thumb });
+    
+    // NEW: Map URLs
+    let mapPhoto = null, mapThumb = null;
+    if (record.hasMap && record.mapBlob) {
+      mapPhoto = URL.createObjectURL(record.mapBlob);
+      mapThumb = record.mapThumb ? URL.createObjectURL(record.mapThumb) : mapPhoto;
+    }
+    
+    galleryUrls.set(record.id, { photo, thumb, mapPhoto, mapThumb });
     record.url = photo;
     record.thumbUrl = thumb;
+    record.mapUrl = mapPhoto;
+    record.mapThumbUrl = mapThumb;
   }
 
   ui.setGalleryVisible(refs, true);
@@ -506,6 +545,27 @@ async function saveToGallery() {
   ui.setBusy(refs.btnSave, true, 'Запазване…');
   try {
     const thumb = await createThumbnail(result.blob).catch(() => null);
+    
+    // NEW: Capture mini-map if GPS fix exists
+    let mapBlob = null, mapThumb = null, mapFilename = null, mapSize = null;
+    if (result.fix && Number.isFinite(result.fix.latitude)) {
+      try {
+        const mapCaptureResult = await mapCapture.captureMapAsBlob(
+          refs.map, 
+          result.fix, 
+          getState().address, 
+          result.capturedAt
+        );
+        mapBlob = mapCaptureResult.blob;
+        mapSize = mapBlob.size;
+        mapFilename = `MAP_${result.filename.replace(/\.jpe?g$/i, '.webp')}`;
+        mapThumb = await createThumbnail(mapBlob).catch(() => null);
+      } catch (e) {
+        console.warn('Map capture failed:', e);
+        ui.showToast(refs, 'Миникартата не бе записана: ' + e.message, { timeout: 3000 });
+      }
+    }
+
     await storage.savePhoto({
       id: globalThis.crypto?.randomUUID?.() ?? `photo-${Date.now()}`,
       createdAt: result.capturedAt.getTime(),
@@ -522,9 +582,15 @@ async function saveToGallery() {
       size: result.size,
       blob: result.blob,
       thumb,
+      // NEW MAP FIELDS:
+      mapBlob,
+      mapThumb,
+      mapFilename,
+      mapSize,
+      hasMap: Boolean(mapBlob),
     });
     await refreshGallery();
-    ui.showToast(refs, 'Снимката е запазена в галерията.');
+    ui.showToast(refs, 'Снимката' + (mapBlob ? ' и картата' : '') + ' са запазени в галерията.');
   } catch (error) {
     ui.showToast(refs, error instanceof Error ? error.message : 'Запазването не успя.');
   } finally {
@@ -562,6 +628,11 @@ function openGalleryItem(record) {
         distance: null,
         reason: record.gpsWritten ? undefined : 'не е проверявано',
       },
+      // NEW: Map data
+      mapBlob: record.mapBlob ?? null,
+      mapFilename: record.mapFilename ?? null,
+      mapSize: record.mapSize ?? null,
+      hasMap: Boolean(record.hasMap),
     },
     { address: record.address ?? null },
   );
@@ -573,6 +644,9 @@ async function deleteGalleryItem(record) {
   if (urls) {
     URL.revokeObjectURL(urls.photo);
     if (urls.thumb !== urls.photo) URL.revokeObjectURL(urls.thumb);
+    // NEW: Revoke map URLs
+    if (urls.mapPhoto) URL.revokeObjectURL(urls.mapPhoto);
+    if (urls.mapThumb && urls.mapThumb !== urls.mapPhoto) URL.revokeObjectURL(urls.mapThumb);
     galleryUrls.delete(record.id);
   }
   await refreshGallery();

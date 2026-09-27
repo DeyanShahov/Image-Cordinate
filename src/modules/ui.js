@@ -56,6 +56,7 @@ export function createRefs(root = document) {
     galleryCount: pick('gallery-count'),
     btnGalleryClear: pick('btn-gallery-clear'),
     toast: pick('toast'),
+    mapPreviewContainer: pick('map-preview'),
   };
 }
 
@@ -203,11 +204,13 @@ export function renderGallery(refs, items, { onOpen, onDelete } = {}) {
     const subtitle = Number.isFinite(item.latitude)
       ? `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`
       : 'без координати';
+    
+    const hasMap = Boolean(item.hasMap && item.mapThumbUrl);
 
     refs.galleryGrid.append(
       el(
         'li',
-        { class: 'tile' },
+        { class: 'tile' + (hasMap ? ' tile--has-map' : '') },
         el(
           'button',
           {
@@ -216,12 +219,25 @@ export function renderGallery(refs, items, { onOpen, onDelete } = {}) {
             title: 'Отвори',
             onclick: () => onOpen?.(item),
           },
-          el('img', {
-            class: 'tile__img',
-            src: item.thumbUrl ?? item.url ?? '',
-            alt: 'Запазена снимка',
-            loading: 'lazy',
-          }),
+          // Photo thumbnail (left)
+          el('div', { class: 'tile__media tile__media--photo' },
+            el('img', {
+              class: 'tile__img',
+              src: item.thumbUrl ?? item.url ?? '',
+              alt: 'Запазена снимка',
+              loading: 'lazy',
+            })
+          ),
+          // Map thumbnail (right) - NEW
+          hasMap ? el('div', { class: 'tile__media tile__media--map' },
+            el('img', {
+              class: 'tile__img tile__img--map',
+              src: item.mapThumbUrl,
+              alt: 'Миникарта',
+              loading: 'lazy',
+            }),
+            el('span', { class: 'tile__map-badge', 'aria-hidden': 'true' }, '🗺️')
+          ) : null,
         ),
         el('span', { class: 'tile__meta', text: subtitle }),
         el('span', {
@@ -255,4 +271,42 @@ export function setZoomRange(refs, { min = 1, max = 1, step = 0.1, value = 1 } =
   refs.zoomRange.max = String(max);
   refs.zoomRange.step = String(step);
   refs.zoomRange.value = String(value);
+}
+
+/** Render map preview in review card */
+export function renderMapPreview(refs, mapUrl, mapFilename, mapBlob) {
+  const container = refs.mapPreviewContainer;
+  if (!container) return;
+  
+  if (mapUrl && mapBlob) {
+    container.innerHTML = '';
+    container.append(
+      el('img', { src: mapUrl, alt: 'Миникарта на мястото', class: 'review__map-preview' }),
+      el('button', { 
+        class: 'btn btn--ghost btn--sm', 
+        onclick: () => {
+          if (mapBlob && mapFilename) {
+            import('../modules/share.js').then(share => share.downloadBlob(mapBlob, mapFilename));
+          }
+        } 
+      }, 'Изтегли карта')
+    );
+    container.hidden = false;
+  } else {
+    container.hidden = true;
+  }
+}
+
+/** Update download button to "Download Both" when map exists */
+export function updateDownloadButton(refs, hasMap, onDownloadBoth, onDownloadSingle) {
+  const btn = refs.btnDownload;
+  if (!btn) return;
+  
+  if (hasMap) {
+    btn.textContent = 'Изтегли и двете';
+    btn.onclick = onDownloadBoth;
+  } else {
+    btn.textContent = 'Изтегли';
+    btn.onclick = onDownloadSingle;
+  }
 }

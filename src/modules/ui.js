@@ -72,6 +72,7 @@ export function createRefs(root = document) {
     btnTorch: pick('btn-torch'),
     zoomRange: pick('zoom-range'),
     chkWatermark: pick('chk-watermark'),
+    chkQr: pick('chk-qr'),
     commentInput: pick('comment-input'),
     commentCount: pick('comment-count'),
     start: pick('start'),
@@ -79,6 +80,8 @@ export function createRefs(root = document) {
     btnNative: pick('btn-native'),
     startError: pick('start-error'),
     nativeInput: pick('native-input'),
+    btnImport: pick('btn-import'),
+    importInput: pick('import-input'),
     review: pick('review'),
     reviewPhoto: pick('review-photo'),
     reviewMeta: pick('review-meta'),
@@ -88,6 +91,9 @@ export function createRefs(root = document) {
     reviewNote: pick('review-note'),
     btnDownload: pick('btn-download'),
     btnDownloadMap: pick('btn-download-map'),
+    btnNavigate: pick('btn-navigate'),
+    btnCopyNav: pick('btn-copy-nav'),
+    btnQr: pick('btn-qr'),
     btnShare: pick('btn-share'),
     btnCopy: pick('btn-copy'),
     btnOsm: pick('btn-osm'),
@@ -101,6 +107,7 @@ export function createRefs(root = document) {
     btnGalleryClear: pick('btn-gallery-clear'),
     toast: pick('toast'),
     mapPreviewContainer: pick('map-preview'),
+    qrPanel: pick('qr-panel'),
   };
 }
 
@@ -471,4 +478,41 @@ export function updateDownloadButtons(refs, { hasMap = false, hasFix = false } =
     setVisible(refs.btnDownloadMap, hasMap || hasFix);
     refs.btnDownloadMap.textContent = 'Изтегли карта';
   }
+}
+
+/* ---------------------------------------------------------------- navigation */
+
+/**
+ * The three location actions only make sense when the photo has a GPS fix:
+ * Навигирай (deep link to the maps app), Копирай за навигация and Покажи QR.
+ */
+export function updateNavigationButtons(refs, { hasFix = false } = {}) {
+  setVisible(refs.btnNavigate, hasFix);
+  setVisible(refs.btnCopyNav, hasFix);
+  setVisible(refs.btnQr, hasFix);
+}
+
+/**
+ * QR panel of the review card: the code, the link it encodes and a short hint.
+ * Passing no canvas hides the panel again.
+ */
+export function renderQrPanel(refs, canvas, text = '') {
+  const container = refs.qrPanel;
+  if (!container) return;
+
+  clear(container);
+  if (!canvas) {
+    container.hidden = true;
+    return;
+  }
+
+  container.append(
+    canvas,
+    el('p', { class: 'qr__text', text }),
+    el('p', {
+      class: 'qr__hint',
+      text: 'Сканирай кода с друг телефон (или с Google Lens) — отваря Google Maps.',
+    }),
+  );
+  container.hidden = false;
 }

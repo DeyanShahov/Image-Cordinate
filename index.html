@@ -72,6 +72,11 @@
             <span>воден знак с координати</span>
           </label>
 
+          <label class="toggle">
+            <input id="chk-qr" type="checkbox" />
+            <span>QR код с координати във водния знак</span>
+          </label>
+
           <label class="comment comment--stage" for="comment-input">
             <span class="comment__label">Коментар (по избор)</span>
             <textarea
@@ -95,7 +100,12 @@
         <div class="actions">
           <button id="btn-start" class="btn btn--primary">Разреши камера и GPS</button>
           <button id="btn-native" class="btn">Снимай с нативната камера</button>
+          <button id="btn-import" class="btn">Зареди снимка</button>
         </div>
+        <p class="hint">
+          „Зареди снимка“ чете GPS-а от EXIF на снимка, която вече имаш (например получена
+          по Viber/WhatsApp) — без да отваря камерата.
+        </p>
         <p id="start-error" class="text-error" role="alert" hidden></p>
         <details class="card__help">
           <summary>Как работи и какви разрешения са нужни?</summary>
@@ -126,16 +136,24 @@
             <ul id="review-meta" class="meta"></ul>
             <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
             <div id="map-preview" class="review__map-preview-container" hidden></div>
+            <div id="qr-panel" class="qr" hidden></div>
             <div class="actions">
-              <button id="btn-download" class="btn btn--primary">Изтегли снимка</button>
+              <button id="btn-navigate" class="btn btn--primary" hidden>🧭 Навигирай</button>
+              <button id="btn-download" class="btn">Изтегли снимка</button>
               <button id="btn-download-map" class="btn" hidden>Изтегли карта</button>
               <button id="btn-share" class="btn" hidden>Сподели</button>
+              <button id="btn-copy-nav" class="btn" hidden>Копирай за навигация</button>
               <button id="btn-copy" class="btn">Копирай координати</button>
+              <button id="btn-qr" class="btn" hidden>Покажи QR</button>
               <button id="btn-osm" class="btn">Отвори в OSM</button>
               <button id="btn-google" class="btn">Google Maps</button>
               <button id="btn-save" class="btn">Запази в галерията</button>
               <button id="btn-new" class="btn btn--ghost">Нова снимка</button>
             </div>
+            <p class="hint">
+              Google Maps не чете координати от снимка — използвай
+              <strong>🧭 Навигирай</strong> или изпрати координатите/линка като текст.
+            </p>
             <p id="review-note" class="hint"></p>
           </div>
         </div>
@@ -158,6 +176,7 @@
     </p>
 
     <input id="native-input" type="file" accept="image/*" capture="environment" hidden />
+    <input id="import-input" type="file" accept="image/*" hidden />
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <noscript>Това приложение изисква JavaScript.</noscript>
     <script type="module" src="/src/main.js"></script>

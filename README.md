@@ -24,6 +24,11 @@
 | **Галерия** | IndexedDB (`idb-keyval`): миниатюри, отваряне, изтриване — работи офлайн |
 | **Коментар към снимката** | Поле за бележка под затвора; снимката, миникартата и коментарът се пазят като **един запис** — изтриеш ли снимката, изчезват и трите. Коментарът може да се редактира и за вече запазена снимка |
 | **Споделяне** | Web Share API с файла (Android/iOS) + fallback за изтегляне и копиране на координатите |
+| **🧭 Навигация** | Бутон „Навигирай“ → `geo:` URI (Android), Google Maps app / Apple Maps (iOS, с автоматичен fallback), Google Maps Directions (десктоп). „Копирай за навигация“ дава `41.887234, 24.712345` — единственият текст, който Google Maps разчита, а споделяният текст съдържа координати + линк + Plus Code |
+| **Зареждане на снимка** | „Зареди снимка“ / drag&drop / Ctrl+V → чете GPS-а от EXIF на снимка, получена по чат, и предлага карта, адрес и навигация — без да пипа оригиналния файл |
+| **Plus Code (OLC)** | Пълен 10-знаков Open Location Code в ревюто и в споделяния текст — форматът, който Google Maps разпознава най-добре (може и да се продиктува) |
+| **QR код** | QR с `https://maps.google.com/?q=lat,lng` (бутон „Покажи QR“) и по избор „изгорен“ във водния знак — друг телефон сканира снимката и отива директно в Maps |
+| **Web Share Target** | На Android: „Сподели снимка → Image Coordinate“ от share sheet-а → координатите веднага са готови за навигация |
 | **PWA** | Manifest, service worker (`vite-plugin-pwa`), инсталируемо на home screen, офлайн shell |
 | **Wake Lock** | Екранът не заспива, докато снимаш |
 
@@ -51,6 +56,11 @@ npm.cmd install          # или: npm install
 npm.cmd run icons        # генерира PWA иконките (без зависимости, чист Node)
 ```
 
+> **Web Share Target (Android):** за да получаваш снимки директно от share sheet-а,
+> приложението трябва да е **инсталирано** (Chrome → „Добави към началния екран“), защото
+> POST заявката се поема от service worker-а (`src/sw.js`). QR кодът използва пакета
+> `qrcode-generator`, който се инсталира с `npm install`.
+
 ---
 
 ## 2. Пускане
@@ -59,7 +69,7 @@ npm.cmd run icons        # генерира PWA иконките (без зав�
 npm.cmd run dev          # http://localhost:5173  (работи за тест на компютъра)
 npm.cmd run build        # production build в dist/
 npm.cmd run preview      # преглед на build-а
-npm.cmd test             # Vitest (19 теста: нормализация на коментар + XPComment UTF-16LE)
+npm.cmd test             # Vitest: коментар/XPComment, навигационни URL-и, Plus Code (OLC)
 ```
 
 ### Тестване на реален телефон — избери един от вариантите
@@ -106,6 +116,20 @@ npm.cmd run dev -- --host
    При снимка, отворена от галерията, бутонът става **„Запази коментара“** и обновява само
    бележката — снимката и картата остават непроменени.
    Изтриването пита за потвърждение и маха **снимката, миникартата и коментара** наведнъж.
+7. **🧭 Навигирай** — отваря картите директно в режим на навигация до мястото на снимката
+   (`geo:` на Android; Google Maps app → Apple Maps на iOS; Google Maps Directions на
+   компютър). **Копирай за навигация** копира само `41.887234, 24.712345`, което може да се
+   постави в Google Maps или да се изпрати в чат; **Копирай координати** копира целия текст
+   (координати + линк + Plus Code + адрес + коментар).
+8. **„Зареди снимка“** (или плъзни файла върху страницата, или **Ctrl+V** на копирана снимка)
+   — приложението чете GPS-а от EXIF-а на вече съществуваща снимка (например получена по
+   Viber/WhatsApp) и показва карта, адрес и същите бутони за навигация. Оригиналният файл не
+   се променя; ако няма координати, получаваш ясно съобщение защо.
+9. **Покажи QR** — показва QR код с линк към Google Maps, който друг телефон сканира директно
+   от екрана. С отметката „QR код с координати във водния знак“ кодът се „изгаря“ и в
+   снимката (тогава Google Lens/камерата на получателя води до мястото).
+10. **Android share sheet** — инсталирай PWA-то и в галерията/чата използвай
+    „Сподели → Image Coordinate“: снимката се отваря тук с готови координати и навигация.
 
 ### Проверка на резултата
 - На телефона: отвори снимката в галерията → „Информация“/„Детайли“ → виж картата.
@@ -122,9 +146,11 @@ index.html                  app shell (video stage, HUD, review, gallery, toast)
 src/
   main.js                   оркестрация: състояния, заснемане, действия, wiring
   state.js                  observable store (phase, camera, gps, fix, result)
+  sw.js                     service worker: precache + Web Share Target POST
   styles/                   tokens.css · base.css · app.css (dark/light, dvh, safe-area)
   utils/
     coords.js               DD↔DMS, EXIF rationals, формати, линкове, име на файл
+    olc.js                  Open Location Code (Plus Code) encoder/decoder
     comment.js              нормализация/преглед на коментар + XPComment (UTF-16LE)
     binary.js               Blob ↔ binary string (chunked!), Blob ↔ base64
     image.js                decodeImage, createCanvas, createThumbnail, canvasToBlob
@@ -138,6 +164,8 @@ src/
     map.js                  Leaflet + OSM, маркер, кръг на точност
     geocode.js              Nominatim reverse + опашка (1.2 s) + кеш
     native-capture.js       input[capture] → File + EXIF на устройството
+    qr.js                   QR код към Google Maps (qrcode-generator): панел + воден знак
+    inbox.js                пощенска кутия за снимките, дошли през share sheet-а
     storage.js              IndexedDB: галерия + geocode кеш
     share.js                download / Web Share / clipboard
     wakelock.js             Screen Wake Lock
@@ -172,6 +200,19 @@ vite.config.js              PWA плъгин + опционален локале
   (haversine) и UI-ът показва „проверен (Δ x.xx m)“ или причината.
 - **Кеширане на адреса**: `Nominatim /reverse?format=jsonv2&addressdetails=1`, сериализирана
   опашка ≥1.2 s, кеш в паметта + IndexedDB (30 дни), тих fallback при офлайн/429.
+- **Навигация към мястото**: `coords.js` генерира четирите формата, които картите разбират —
+  `plainCoordinates` („41.887234, 24.712345“), Google Maps Directions линк, `geo:` (Android) и
+  схемите на Google/Apple Maps. `navigationLinks()` подрежда кои да се опитат според
+  платформата, а `openNavigationLinks()` (main.js) пуска следващия, ако приложението липсва
+  (наблюдава `visibilitychange`). `olc.js` дава пълния **Plus Code** (10 знака ≈ 13.9 m) —
+  форматът, който Google Maps разпознава най-добре.
+- **От получена снимка към навигация**: `importPhoto()` (main.js) чете EXIF-а с `exifr` и
+  показва същата ревю карта, **без да променя файла**; входовете са бутон „Зареди снимка“,
+  drag&drop и Ctrl+V, а на Android и Web Share Target — `manifest.share_target` +
+  POST handler в `src/sw.js`, който пази файла през `inbox.js` и редиректва към приложението.
+- **QR код**: `qrcode-generator` (MIT, без зависимости) се зарежда **динамично**; `qr.js` връща
+  модулната матрица, която се рисува в панела (`createQrCanvas`) или направо във водния знак
+  (`paintQrMatrix`, кап 4096 px път). Съдържанието е `https://maps.google.com/?q=lat,lng`.
 - **Един запис за трите елемента**: store-ът `photos` пази `blob`/`thumb` (снимка),
   `mapBlob`/`mapThumb` (миникарта) и `comment` в **един и същ обект**, затова
   `deletePhoto(id)` ги маха наведнъж — без каскадно изтриване и без възможност за „сираци“.
@@ -191,6 +232,17 @@ vite.config.js              PWA плъгин + опционален локале
 
 ## 6. Ограничения и бележки
 
+- **Google Maps не чете координати от снимка.** Колкото и валиден да е EXIF-ът, Maps приема
+  само текст (`lat, lng`), линк, Plus Code или `geo:` URI — подаден файл връща „невалиден
+  формат“. Затова приложението дава „🧭 Навигирай“, „Копирай за навигация“ и QR код.
+  (Единственото изключение е галерията на телефона: iOS Photos показва мястото и може да води
+  до Apple Maps.)
+- **Метаданните се губят при препращане.** Компресията в WhatsApp/Telegram/Viber, Instagram и
+  скрийншотовете махат EXIF (включително GPS). Изпращай снимката като **файл/документ**, за да
+  стигнат координатите, или използвай Web Share Target на Android.
+- **Web Share Target** изисква инсталирано PWA и Chrome на Android (на iOS такъв API няма).
+- **QR кодът** изисква пакета `qrcode-generator` (`npm install`). Без него бутоните съобщават,
+  че encoder-ът липсва — останалата част от приложението работи нормално.
 - **iOS Safari**: няма `ImageCapture` → кадърът е видео кадър (по-ниско качество от нативната
   камера). За максимално качество използвай **„Снимай с нативната камера“**.
 - **Nominatim** е публичен и безплатен с rate limit 1 заявка/сек и изисква атрибуция
@@ -224,8 +276,11 @@ vite.config.js              PWA плъгин + опционален локале
 
 - Карти и геокодиране: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors,
   [Nominatim](https://nominatim.org/).
+- Plus Code (Open Location Code): алгоритъм по [open-location-code](https://github.com/google/open-location-code)
+  (Apache-2.0) и [plus.codes](https://plus.codes).
 - Библиотеки: [Leaflet](https://leafletjs.com/) (BSD-2), [exifr](https://github.com/MikeKovarik/exifr) (MIT),
-  [piexif-ts](https://github.com/holwech/piexif-ts) (MIT), [idb-keyval](https://github.com/jakearchibald/idb-keyval) (Apache-2.0).
+  [piexif-ts](https://github.com/holwech/piexif-ts) (MIT), [idb-keyval](https://github.com/jakearchibald/idb-keyval) (Apache-2.0),
+  [html2canvas](https://html2canvas.hertzen.com/) (MIT), [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT).
 
 Координатите и снимките **никога не напускат устройството** (освен ако не ги споделиш
 изрично). Кодът в това репо е примерен проект — използвай го свободно.

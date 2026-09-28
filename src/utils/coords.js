@@ -163,14 +163,100 @@ export function makePhotoFilename(date, latitude, longitude, extension = 'jpg') 
   return `IMG_${stamp}${geo}.${extension}`;
 }
 
-/** Plain text payload for the clipboard / share sheet. */
-export function coordinateSummary(latitude, longitude, extra = {}) {
-  const parts = [`${latitude}, ${longitude}`];
-  if (Number.isFinite(extra.accuracy)) parts.push(`точност ±${Math.round(extra.accuracy)} m`);
-  if (Number.isFinite(extra.altitude)) {
-    parts.push(`надм. височина ${Math.round(extra.altitude)} m`);
+/* ------------------------------------------------------------- navigation ---
+ * Google Maps (web and app) can not read the GPS tags of a photo - it only
+ * understands text, links, Plus Codes and `geo:` URIs. These helpers produce
+ * exactly those formats, so a received photo (or a copied string) can be turned
+ * into turn-by-turn navigation in one tap.
+ */
+
+/** Google Maps parses exactly this and nothing else: "41.887234, 24.712345". */
+export function plainCoordinates(latitude, longitude, precision = 6) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  return `${latitude.toFixed(precision)}, ${longitude.toFixed(precision)}`;
+}
+
+/** Google Maps URLs API - opens directions to the point, no API key required. */
+export function googleDirectionsUrl(latitude, longitude, travelMode = 'driving') {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  return (
+    `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` +
+    `&travelmode=${travelMode}`
+  );
+}
+
+/** Universal link for Apple Maps directions (safe fallback when the app is absent). */
+export function appleMapsDirectionsUrl(latitude, longitude, travelMode = 'driving') {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  const flag = travelMode === 'walking' ? 'w' : travelMode === 'transit' ? 'r' : 'd';
+  return `https://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=${flag}`;
+}
+
+/** Google Maps iOS app scheme (only works when the app is installed). */
+export function googleMapsAppUrl(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  return `comgooglemaps://?daddr=${latitude},${longitude}&directionsmode=driving`;
+}
+
+/** Apple Maps app scheme. */
+export function appleMapsAppUrl(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  return `maps://?daddr=${latitude},${longitude}`;
+}
+
+/** 'ios' | 'android' | 'desktop' - drives which maps app we hand the job to. */
+export function detectPlatform(userAgent = globalThis.navigator?.userAgent ?? '') {
+  if (/iphone|ipad|ipod/i.test(userAgent)) return 'ios';
+  if (/android/i.test(userAgent)) return 'android';
+  return 'desktop';
+}
+
+/**
+ * Ordered list of URLs to try when the user taps "Навигирай".
+ *
+ * The caller walks the list and stops at the first URL that leaves the page (see
+ * `openNavigationLinks` in main.js), which is the standard way to cope with apps
+ * that may or may not be installed on the device.
+ *
+ * @returns {string[]}
+ */
+export function navigationLinks(latitude, longitude, platform = detectPlatform()) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+  if (platform === 'android') {
+    // `geo:` is handled by Google Maps (and offers the app chooser on Android).
+    return [
+      `geo:${latitude},${longitude}?q=${latitude},${longitude}`,
+      googleDirectionsUrl(latitude, longitude),
+    ];
   }
-  if (extra.timestamp) parts.push(formatDateTime(new Date(extra.timestamp)));
-  if (extra.address) parts.push(extra.address);
-  return parts.join(' | ');
+  if (platform === 'ios') {
+    return [
+      googleMapsAppUrl(latitude, longitude),
+      appleMapsAppUrl(latitude, longitude),
+      appleMapsDirectionsUrl(latitude, longitude),
+    ];
+  }
+  return [googleDirectionsUrl(latitude, longitude)];
+}
+
+/**
+ * Text that is worth sharing: the mobile maps apps (and chat clients) pick the
+ * coordinates out of the first line, while the link works everywhere else.
+ *
+ * @param {{ latitude: number, longitude: number, address?: string|null,
+ *           comment?: string|null, plusCode?: string|null }} options
+ */
+export function navigationText({ latitude, longitude, address = null, comment = null, plusCode = null } = {}) {
+  const coordinates = plainCoordinates(latitude, longitude);
+  if (!coordinates) return '';
+
+  const lines = [coordinates, googleDirectionsUrl(latitude, longitude)];
+  const note = plusCode ? `Plus Code: ${plusCode}` : null;
+  if (note) lines.push(note);
+  if (address) lines.push(address);
+
+  const text = lines.filter(Boolean).join('\n');
+  if (!comment) return text;
+  const oneLine = String(comment).replace(/\s*\n+\s*/g, ' ').trim();
+  return oneLine ? `${text}\n„${oneLine}“` : text;
 }

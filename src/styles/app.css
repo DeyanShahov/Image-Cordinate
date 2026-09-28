@@ -622,6 +622,42 @@
   display: block;
 }
 
+/* ------------- QR code ------------- */
+
+.qr {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* QR codes need contrast, so this panel stays light in both themes. */
+  background: #ffffff;
+  color: #0b1220;
+}
+
+.qr__canvas {
+  width: min(240px, 62vw);
+  height: auto;
+  image-rendering: pixelated;
+}
+
+.qr__text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: #334155;
+  word-break: break-all;
+  text-align: center;
+}
+
+.qr__hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #475569;
+  text-align: center;
+}
+
 /* ------------- toast & footer ------------- */
 
 .toast {

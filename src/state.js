@@ -45,6 +45,8 @@ const initialState = {
   comment: '',
   /** Watermark toggle from the UI. */
   watermark: true,
+  /** Draw a QR code (Google Maps link) into the watermark as well. */
+  qr: false,
   /** Video input devices that reported a label. */
   cameras: [],
   activeCameraId: null,

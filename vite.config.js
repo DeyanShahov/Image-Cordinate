@@ -40,7 +40,7 @@ export default defineConfig({
   },
   // piexif-ts ships a legacy package.json (no "exports" map) -> pre-bundle it.
   optimizeDeps: {
-    include: ['piexif-ts', 'exifr', 'idb-keyval', 'leaflet'],
+    include: ['piexif-ts', 'exifr', 'idb-keyval', 'leaflet', 'qrcode-generator'],
   },
   build: {
     target: 'es2022',
@@ -49,6 +49,11 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
+      // A hand written worker (src/sw.js): a generated one cannot accept the photo that
+      // another app shares with us (see `share_target` in the manifest below).
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       includeAssets: ['icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         name: 'Image Coordinate',
@@ -72,13 +77,19 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
+        // Web Share Target: the installed PWA appears in the Android share sheet and
+        // receives the photo as a multipart/form-data POST (handled by src/sw.js).
+        share_target: {
+          action: './share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            files: [{ name: 'photo', accept: ['image/jpeg', 'image/png', 'image/*'] }],
+          },
+        },
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        cleanupOutdatedCaches: true,
-        navigateFallback: 'index.html',
-        // OSM tiles / Nominatim are runtime data -> never intercept them.
-        navigateFallbackDenylist: [/^\/api\//],
       },
       devOptions: {
         enabled: false,

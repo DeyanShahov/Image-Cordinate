@@ -13,7 +13,6 @@ import './styles/app.css';
 import { CAMERA_STATES, GPS_STATES, PHASES, getState, setState, subscribe } from './state.js';
 import { show } from './utils/dom.js';
 import {
-  coordinateSummary,
   formatAccuracy,
   formatAltitude,
   formatBytes,
@@ -21,8 +20,12 @@ import {
   formatDms,
   googleMapsUrl,
   makePhotoFilename,
+  navigationLinks,
+  navigationText,
   osmUrl,
+  plainCoordinates,
 } from './utils/coords.js';
+import { encodeOlc } from './utils/olc.js';
 import { describeGeolocationError, describeMediaError, describeShareError } from './utils/errors.js';
 import { hasComment, normalizeComment, withCommentSummary } from './utils/comment.js';
 import { createThumbnail } from './utils/image.js';
@@ -30,9 +33,11 @@ import * as camera from './modules/camera.js';
 import * as exif from './modules/exif.js';
 import { reverseGeocode } from './modules/geocode.js';
 import * as geo from './modules/geolocation.js';
+import * as inbox from './modules/inbox.js';
 import * as mapModule from './modules/map.js';
 import * as mapCapture from './modules/map-capture.js';
 import { pickPhotoFile, readDeviceMetadata } from './modules/native-capture.js';
+import * as qr from './modules/qr.js';
 import * as share from './modules/share.js';
 import * as storage from './modules/storage.js';
 import * as ui from './modules/ui.js';
@@ -270,6 +275,115 @@ async function captureFromNativeCamera() {
 }
 
 /**
+ * "Зареди снимка": opens a photo that already exists on the device (received by chat,
+ * mail, ...) and reads its GPS out of the EXIF, so it can be navigated to.
+ *
+ * The file is never re-encoded here - the pixels and the original metadata stay exactly
+ * as they came in, which is why the result is assembled directly instead of going
+ * through `processPhoto`.
+ */
+async function importPhoto(file) {
+  if (!file) return;
+  if (!file.type?.startsWith('image/')) {
+    ui.showToast(refs, 'Файлът не е изображение.');
+    return;
+  }
+
+  ui.setBusy(refs.btnImport, true, 'Зареждане…');
+  try {
+    const device = await readDeviceMetadata(file);
+    if (!device.gps) {
+      ui.showToast(
+        refs,
+        'Снимката няма GPS в EXIF — вероятно метаданните са премахнати при препращане (изпращай снимката като файл/документ).',
+        { timeout: 9000 },
+      );
+      return;
+    }
+
+    const fix = { ...device.gps, source: 'device' };
+    const capturedAt = device.takenAt ?? new Date(file.lastModified || Date.now());
+    const geocoded = await reverseGeocode(fix.latitude, fix.longitude);
+    const address = geocoded?.label ?? geocoded?.displayName ?? null;
+    const extension = (file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+
+    showResult(
+      {
+        blob: file,
+        fix,
+        address,
+        capturedAt,
+        source: 'import',
+        watermarked: false,
+        qrBurned: false,
+        device,
+        comment: normalizeComment(getState().comment),
+        exifComment: '',
+        recordId: null,
+        exif: {
+          applied: false,
+          gpsWritten: true,
+          commentWritten: false,
+          reason: 'снимката е заредена както е (EXIF не се пренаписва)',
+        },
+        verification: {
+          verified: true,
+          gps: { latitude: fix.latitude, longitude: fix.longitude },
+          distance: null,
+          reason: 'координати, прочетени от EXIF на снимката',
+        },
+        commentVerified: null,
+        size: file.size,
+        filename: makePhotoFilename(capturedAt, fix.latitude, fix.longitude, extension),
+      },
+      { device, address },
+    );
+
+    ui.showToast(refs, 'Координатите са прочетени от снимката — „Навигирай“ е готово.', {
+      timeout: 6000,
+    });
+  } catch (error) {
+    ui.showToast(refs, error instanceof Error ? error.message : 'Снимката не можа да се зареди.');
+  } finally {
+    ui.setBusy(refs.btnImport, false);
+  }
+}
+
+/** Opens the file picker for the import flow (the input has no `capture`, see index.html). */
+async function pickImportFile() {
+  const file = await pickPhotoFile(refs.importInput);
+  if (file) await importPhoto(file);
+}
+
+/**
+ * Android "Сподели → Image Coordinate": the service worker parks the shared photo in
+ * the inbox and redirects here, so all we have to do is run the import flow.
+ *
+ * @returns {Promise<void>}
+ */
+async function pickUpSharedPhoto() {
+  const shared = await inbox.takeSharedPhoto();
+  const sharedParam = new URLSearchParams(location.search).has('shared');
+
+  if (shared) {
+    try {
+      const file = new File([shared.blob], shared.name || 'shared-photo', {
+        type: shared.blob.type || shared.type || 'image/jpeg',
+      });
+      ui.showToast(refs, 'Зареждане на споделената снимка…', { timeout: 2000 });
+      await importPhoto(file);
+    } catch (error) {
+      console.warn('shared photo import failed', error);
+    }
+  } else if (sharedParam) {
+    ui.showToast(refs, 'Споделената снимка не беше получена (твърде голяма?).', { timeout: 7000 });
+  }
+
+  // Drop the ?shared=1 marker so a refresh does not look like a new share.
+  if (sharedParam) history.replaceState(null, '', location.pathname);
+}
+
+/**
  * Device EXIF vs live fix: when they disagree by more than the combined accuracy
  * we trust the browser fix, because there we know the reported accuracy.
  */
@@ -286,17 +400,38 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
   const state = getState();
   let photo = blob;
   let watermarked = false;
+  let qrBurned = false;
   let targetSize = pixelSize;
 
-  if (state.watermark) {
+  const hasFix = Boolean(fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude));
+  const wantsQr = Boolean(state.qr) && hasFix;
+
+  // The QR code lives in the pixels, so asking for one means the photo has to be
+  // re-encoded - exactly like the watermark (which is therefore switched on too).
+  if (state.watermark || wantsQr) {
+    let qrMatrix = null;
+
+    if (wantsQr) {
+      qrMatrix = await qr.createQrMatrix(qr.qrPayloadFor(fix.latitude, fix.longitude));
+      if (!qrMatrix) {
+        ui.showToast(
+          refs,
+          'QR кодът не е наличен — инсталирай пакета qrcode-generator (npm install).',
+          { timeout: 7000 },
+        );
+      }
+    }
+
     try {
       const stamped = await watermark.withWatermark(photo, {
         fix,
         address: state.address,
         capturedAt,
+        qrMatrix,
       });
       photo = stamped.blob;
       watermarked = true;
+      qrBurned = Boolean(qrMatrix);
       targetSize = { width: stamped.width, height: stamped.height };
     } catch (error) {
       ui.showToast(refs, `Водният знак не беше приложен: ${error.message}`);
@@ -338,6 +473,8 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     capturedAt,
     source,
     watermarked,
+    /** Whether the Google Maps QR code was drawn into the pixels. */
+    qrBurned,
     device,
     /**
      * Comment frozen with the shutter (see state.comment). It stays on the result so
@@ -364,10 +501,13 @@ const SOURCE_LABELS = {
   canvas: 'браузър (кадър от видео — iOS)',
   native: 'нативна камера на телефона',
   device: 'EXIF на устройството',
+  import: 'заредена снимка (координати от EXIF)',
 };
 
 function describeExif(result) {
   const { exif: exifResult, verification } = result;
+  // A photo that was loaded from the device keeps its own EXIF untouched.
+  if (result.source === 'import' && !exifResult.applied) return 'прочетен от снимката (не е пренаписван)';
   if (!exifResult.applied) return `не е записан (${exifResult.reason})`;
   if (!exifResult.gpsWritten) return 'обновен, но без GPS тагове';
   if (!verification.verified) return `записан, без потвърждение (${verification.reason})`;
@@ -384,6 +524,14 @@ function describeComment(result) {
   return 'записан';
 }
 
+/** Whether the Google Maps QR code made it into the pixels of this photo. */
+function describeQr(result) {
+  if (result.qrBurned) return 'в снимката — сканирай за Google Maps';
+  // A loaded photo is never re-encoded, so the QR question does not apply to it.
+  if (result.source === 'import') return null;
+  return getState().qr ? 'не е приложен' : null;
+}
+
 function buildMetaRows(result, device, address) {
   const { fix, capturedAt } = result;
   return [
@@ -392,6 +540,7 @@ function buildMetaRows(result, device, address) {
       fix ? `${fix.latitude.toFixed(6)}, ${fix.longitude.toFixed(6)}` : 'без GPS fix',
     ],
     ['Координати (DMS)', fix ? formatDms(fix.latitude, fix.longitude) : null],
+    ['Plus Code', fix ? encodeOlc(fix.latitude, fix.longitude) : null],
     ['Точност', fix && Number.isFinite(fix.accuracy) ? formatAccuracy(fix.accuracy) : null],
     ['Надм. височина', fix && Number.isFinite(fix.altitude) ? formatAltitude(fix.altitude) : null],
     ['Адрес', address],
@@ -400,6 +549,7 @@ function buildMetaRows(result, device, address) {
     ['Камера (устройство)', device ? [device.make, device.model].filter(Boolean).join(' ') : null],
     ['EXIF GPS', describeExif(result)],
     ['Коментар в EXIF', describeComment(result)],
+    ['QR код', describeQr(result)],
     ['Воден знак', result.watermarked ? 'да' : 'не'],
     ['Размер на файла', formatBytes(result.size)],
   ];
@@ -416,6 +566,12 @@ function showResult(result, { device = null, address = getState().address } = {}
   });
   ui.renderSaveLabel(refs, { saved: Boolean(result.recordId) });
   ui.setReviewVisible(refs, true);
+
+  // Navigation actions: only meaningful when the photo has a fix at all.
+  const hasFix = Boolean(result.fix && Number.isFinite(result.fix.latitude));
+  ui.updateNavigationButtons(refs, { hasFix });
+  // A new photo always starts with the QR panel closed.
+  ui.renderQrPanel(refs, null);
 
   const asFile = new File([result.blob], result.filename, {
     type: result.blob.type || 'image/jpeg',
@@ -449,13 +605,15 @@ function showResult(result, { device = null, address = getState().address } = {}
   }
   ui.setReviewNote(refs, notes.join(' '));
 
-  // Update state FIRST so the download handlers read the correct result
-  setState({ result, phase: PHASES.REVIEW });
+  // Update state FIRST so the download handlers read the correct result.
+  // The resolved address travels with the result: the navigation text then describes
+  // this photo instead of the live GPS position (matters for loaded photos).
+  setState({ result: { ...result, address }, phase: PHASES.REVIEW });
 
   // Show/hide the two download buttons (photo always; map when a blob exists or a fix allows on-demand capture)
   ui.updateDownloadButtons(refs, {
     hasMap: Boolean(result.hasMap && result.mapBlob),
-    hasFix: Boolean(result.fix && Number.isFinite(result.fix.latitude)),
+    hasFix,
   });
 
   refs.review?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -485,17 +643,21 @@ function currentFile() {
   return new File([result.blob], result.filename, { type: result.blob.type || 'image/jpeg' });
 }
 
+/**
+ * Text that is worth sharing: coordinates on the first line (Google Maps and the chat
+ * apps pick those up), then a directions link, the Plus Code, the address and finally
+ * the comment. This is what makes a forwarded photo or message navigable.
+ */
 function summaryText(result) {
   if (!result?.fix) return withCommentSummary('Снимка без GPS координати', result?.comment);
-  return withCommentSummary(
-    coordinateSummary(result.fix.latitude, result.fix.longitude, {
-      accuracy: result.fix.accuracy,
-      altitude: result.fix.altitude,
-      timestamp: result.capturedAt.getTime(),
-      address: getState().address,
-    }),
-    result.comment,
-  );
+  const { latitude, longitude } = result.fix;
+  return navigationText({
+    latitude,
+    longitude,
+    address: result.address ?? getState().address,
+    comment: result.comment,
+    plusCode: encodeOlc(latitude, longitude),
+  });
 }
 
 function downloadPhoto() {
@@ -569,6 +731,7 @@ async function shareResult() {
   }
 }
 
+/** Copies the whole "navigation text": coordinates, directions link, Plus Code, address. */
 async function copyCoordinates() {
   const result = getState().result;
   if (!result?.fix) {
@@ -577,9 +740,122 @@ async function copyCoordinates() {
   }
   try {
     await share.copyText(summaryText(result));
-    ui.showToast(refs, 'Координатите са копирани.');
+    ui.showToast(refs, 'Координатите и линкът са копирани.', { timeout: 5000 });
   } catch (error) {
     ui.showToast(refs, error instanceof Error ? error.message : 'Копирането не успя.');
+  }
+}
+
+/**
+ * Copies exactly `41.887234, 24.712345` - the one format Google Maps parses when it
+ * is pasted into the search box (also recognised by chat apps and car navigation).
+ */
+async function copyNavigationCoordinates() {
+  const fix = getState().result?.fix;
+  if (!Number.isFinite(fix?.latitude) || !Number.isFinite(fix?.longitude)) {
+    ui.showToast(refs, 'Няма координати за копиране.');
+    return;
+  }
+  try {
+    await share.copyText(plainCoordinates(fix.latitude, fix.longitude));
+    ui.showToast(refs, 'Копирано — постави го в Google Maps.', { timeout: 5000 });
+  } catch (error) {
+    ui.showToast(refs, error instanceof Error ? error.message : 'Копирането не успя.');
+  }
+}
+
+/** Hands the coordinates to the maps app and starts navigation. */
+function navigateToPhoto() {
+  const fix = getState().result?.fix;
+  if (!Number.isFinite(fix?.latitude) || !Number.isFinite(fix?.longitude)) {
+    ui.showToast(refs, 'Няма координати за навигация.');
+    return;
+  }
+  void openNavigationLinks(navigationLinks(fix.latitude, fix.longitude));
+}
+
+/**
+ * Opens the first URL that actually leaves the page.
+ *
+ * Custom schemes (`geo:`, `maps://`, `comgooglemaps://`) are silently ignored when the
+ * matching app is not installed, so they are tried in order: the page is watched for a
+ * short moment and the next URL is used when nothing happened (standard deep-link dance).
+ */
+async function openNavigationLinks(links) {
+  const list = Array.isArray(links) ? links.filter(Boolean) : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const url = list[index];
+    const isLast = index === list.length - 1;
+
+    if (/^https?:/i.test(url)) {
+      openExternal(url);
+      return;
+    }
+    if ((await tryOpenCustomScheme(url)) || isLast) return;
+  }
+}
+
+/** Fires a custom-scheme URL; resolves true when the browser navigated away from us. */
+function tryOpenCustomScheme(url) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (leftPage) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      resolve(leftPage);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') finish(true);
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    // Same-tab navigation: custom schemes never open a new tab.
+    window.location.href = url;
+    setTimeout(() => finish(document.visibilityState === 'hidden'), 1200);
+  });
+}
+
+/**
+ * Shows the QR code of the current photo (the Google Maps link) so another phone can
+ * scan it straight off the screen.
+ */
+async function toggleQrPanel() {
+  const fix = getState().result?.fix;
+  if (!Number.isFinite(fix?.latitude) || !Number.isFinite(fix?.longitude)) {
+    ui.showToast(refs, 'Няма координати за QR код.');
+    return;
+  }
+  if (!refs.qrPanel) return;
+
+  // Second tap closes the panel again.
+  if (!refs.qrPanel.hidden) {
+    ui.renderQrPanel(refs, null);
+    if (refs.btnQr) refs.btnQr.textContent = 'Покажи QR';
+    return;
+  }
+
+  ui.setBusy(refs.btnQr, true, 'Генериране…');
+  let opened = false;
+  try {
+    const payload = qr.qrPayloadFor(fix.latitude, fix.longitude);
+    const canvas = await qr.createQrCanvas(payload, { pixelSize: 240 });
+    if (!canvas) {
+      ui.showToast(
+        refs,
+        'QR кодът не е наличен — инсталирай пакета qrcode-generator (npm install).',
+        { timeout: 7000 },
+      );
+      return;
+    }
+    ui.renderQrPanel(refs, canvas, payload);
+    opened = true;
+  } catch (error) {
+    ui.showToast(refs, error instanceof Error ? error.message : 'QR кодът не можа да се създаде.');
+  } finally {
+    ui.setBusy(refs.btnQr, false);
+    // setBusy restores the label it captured, so the final label is set last.
+    if (refs.btnQr) refs.btnQr.textContent = opened ? 'Скрий QR' : 'Покажи QR';
   }
 }
 
@@ -744,7 +1020,7 @@ async function saveToGallery() {
       longitude: result.fix?.longitude ?? null,
       accuracy: result.fix?.accuracy ?? null,
       altitude: result.fix?.altitude ?? null,
-      address: getState().address ?? null,
+      address: result.address ?? getState().address ?? null,
       // Third element of the record: photo + mini-map + comment live in one object,
       // so `deletePhoto(id)` always removes all three of them together.
       comment: normalizeComment(result.comment),
@@ -992,6 +1268,7 @@ async function clearGallery() {
 function wireEvents() {
   refs.btnStart?.addEventListener('click', () => void startCameraFlow());
   refs.btnNative?.addEventListener('click', () => void captureFromNativeCamera());
+  refs.btnImport?.addEventListener('click', () => void pickImportFile());
   refs.btnShutter?.addEventListener('click', () => void captureFromCamera());
   refs.btnSwitch?.addEventListener('click', () => void toggleCamera());
 
@@ -1013,6 +1290,41 @@ function wireEvents() {
     setState({ watermark: refs.chkWatermark.checked });
   });
 
+  // The QR code is drawn into the pixels, so it needs the watermark (canvas) path.
+  refs.chkQr?.addEventListener('change', () => {
+    const enabled = refs.chkQr.checked;
+    setState({ qr: enabled });
+    if (enabled && refs.chkWatermark && !refs.chkWatermark.checked) {
+      refs.chkWatermark.checked = true;
+      setState({ watermark: true });
+    }
+  });
+
+  // A photo from another app can be dropped on the page or pasted (Ctrl+V).
+  document.addEventListener('dragover', (event) => {
+    if (!event.dataTransfer?.types?.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.addEventListener('drop', (event) => {
+    const file = [...(event.dataTransfer?.files ?? [])].find((item) =>
+      item.type?.startsWith('image/'),
+    );
+    if (!file) return;
+    event.preventDefault();
+    void importPhoto(file);
+  });
+
+  document.addEventListener('paste', (event) => {
+    const file = [...(event.clipboardData?.files ?? [])].find((item) =>
+      item.type?.startsWith('image/'),
+    );
+    if (!file) return;
+    event.preventDefault();
+    void importPhoto(file);
+  });
+
   // Comment draft under the shutter. It is NOT normalised while typing (that would
   // move the caret around); the frozen copy is normalised when the shutter fires.
   refs.commentInput?.addEventListener('input', () => {
@@ -1028,6 +1340,9 @@ function wireEvents() {
 
   refs.btnDownload?.addEventListener('click', () => downloadPhoto());
   refs.btnDownloadMap?.addEventListener('click', () => void downloadMap());
+  refs.btnNavigate?.addEventListener('click', () => navigateToPhoto());
+  refs.btnCopyNav?.addEventListener('click', () => void copyNavigationCoordinates());
+  refs.btnQr?.addEventListener('click', () => void toggleQrPanel());
   refs.btnShare?.addEventListener('click', () => void shareResult());
   refs.btnCopy?.addEventListener('click', () => void copyCoordinates());
   refs.btnSave?.addEventListener('click', () => void saveToGallery());
@@ -1099,6 +1414,7 @@ function init() {
 
   renderAll();
   void refreshGallery();
+  void pickUpSharedPhoto();
   void registerServiceWorker();
 }
 

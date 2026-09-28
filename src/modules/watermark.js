@@ -15,6 +15,7 @@ import {
   formatDecimal,
   formatDms,
 } from '../utils/coords.js';
+import { paintQrMatrix } from './qr.js';
 
 function roundRect(context, x, y, width, height, radius) {
   if (typeof context.roundRect === 'function') {
@@ -56,7 +57,8 @@ function wrapText(context, text, maxWidth, maxLines = 2) {
 /**
  * @param {Blob} blob JPEG/PNG source
  * @param {{ fix?: object|null, address?: string|null, capturedAt?: Date,
- *           maxEdge?: number, quality?: number, brand?: string }} options
+ *           maxEdge?: number, quality?: number, brand?: string,
+ *           qrMatrix?: { count: number, rows: number[][] }|null }} options
  * @returns {Promise<{ blob: Blob, scaled: boolean, width: number, height: number }>}
  */
 export async function withWatermark(blob, options = {}) {
@@ -67,6 +69,7 @@ export async function withWatermark(blob, options = {}) {
     maxEdge = 4096,
     quality = 0.92,
     brand = 'Image Coordinate',
+    qrMatrix = null,
   } = options;
 
   const image = await decodeImage(blob);
@@ -145,6 +148,21 @@ export async function withWatermark(blob, options = {}) {
     cursorY += Math.round(line.size * 1.45);
   }
   context.restore();
+
+  // Optional QR code in the top-right corner: a scanner (or Google Lens) on another
+  // phone lands straight in Google Maps, no app required on the receiving side.
+  if (qrMatrix) {
+    const qrSize = Math.max(96, Math.round(width * 0.2));
+    const qrMargin = Math.round(width * 0.02);
+    paintQrMatrix(context, qrMatrix, {
+      x: width - qrSize - qrMargin,
+      y: qrMargin,
+      size: qrSize,
+      quietZone: 2,
+      light: '#ffffff',
+      dark: '#04080f',
+    });
+  }
 
   const watermarked = await canvasToBlob(canvas, 'image/jpeg', quality);
   return { blob: watermarked, scaled: scale < 1, width, height };

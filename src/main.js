@@ -24,6 +24,7 @@ import {
   osmUrl,
 } from './utils/coords.js';
 import { describeGeolocationError, describeMediaError, describeShareError } from './utils/errors.js';
+import { hasComment, normalizeComment, withCommentSummary } from './utils/comment.js';
 import { createThumbnail } from './utils/image.js';
 import * as camera from './modules/camera.js';
 import * as exif from './modules/exif.js';
@@ -209,8 +210,10 @@ async function captureFromCamera() {
   setState({ busy: true, phase: PHASES.CAPTURING });
   ui.showToast(refs, 'Заснемане…', { timeout: 1200 });
 
-  // The fix is frozen at the exact moment the shutter was pressed.
+  // The fix and the comment draft are frozen at the exact moment the shutter was
+  // pressed, so every photo carries the text that was on screen when it was taken.
   const fix = state.fix ? { ...state.fix } : null;
+  const comment = normalizeComment(state.comment);
   const capturedAt = new Date();
 
   try {
@@ -219,6 +222,7 @@ async function captureFromCamera() {
     const result = await processPhoto({
       blob: frame.blob,
       fix,
+      comment,
       capturedAt,
       source: frame.source,
       pixelSize:
@@ -244,10 +248,12 @@ async function captureFromNativeCamera() {
   try {
     const device = await readDeviceMetadata(file);
     const fix = mergeFixes(device.gps, getState().fix);
+    const comment = normalizeComment(getState().comment);
     const capturedAt = device.takenAt ?? new Date();
     const result = await processPhoto({
       blob: file,
       fix,
+      comment,
       capturedAt,
       source: 'native',
       pixelSize:
@@ -276,7 +282,7 @@ function mergeFixes(deviceGps, liveFix) {
 }
 
 /** Watermark (optional) + EXIF GPS + read-back verification. */
-async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device = null }) {
+async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device = null, comment = '' }) {
   const state = getState();
   let photo = blob;
   let watermarked = false;
@@ -302,6 +308,8 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     address: state.address,
     capturedAt,
     source,
+    // XPComment (UTF-16LE): the comment travels inside the JPEG as well.
+    comment,
     pixelSize: targetSize,
     // Re-encoding through canvas normalises the orientation, so reset the tag.
     resetOrientation: watermarked,
@@ -317,6 +325,13 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
           reason: exifResult.reason ?? 'няма GPS тагове',
         };
 
+  // The comment gets the same treatment as the coordinates: read it back out of the
+  // file we just wrote, so the review card can show "записан и проверен".
+  const commentVerified =
+    hasComment(comment) && exifResult.applied && exifResult.commentWritten
+      ? (await exif.readCommentFromBlob(exifResult.blob)) === normalizeComment(comment)
+      : false;
+
   return {
     blob: exifResult.blob,
     fix,
@@ -324,8 +339,19 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     source,
     watermarked,
     device,
+    /**
+     * Comment frozen with the shutter (see state.comment). It stays on the result so
+     * the review card can edit it before saving and so a gallery record can carry it.
+     */
+    comment,
+    /** The text that went into the JPEG (XPComment) - used to detect later edits. */
+    exifComment: normalizeComment(comment),
+    /** Set when the record already exists in the gallery (opened from there). */
+    recordId: null,
     exif: exifResult,
     verification,
+    /** Comment read back out of the JPEG (null for photos opened from the gallery). */
+    commentVerified,
     size: exifResult.blob.size,
     filename: makePhotoFilename(capturedAt, fix?.latitude, fix?.longitude),
   };
@@ -348,6 +374,16 @@ function describeExif(result) {
   return `записан и проверен (Δ ${(verification.distance ?? 0).toFixed(2)} m)`;
 }
 
+/** Human readable state of the comment inside the JPEG. */
+function describeComment(result) {
+  if (!hasComment(result.comment)) return null;
+  if (!result.exif?.applied) return `не е записан (${result.exif?.reason ?? 'EXIF недостъпен'})`;
+  if (!result.exif.commentWritten) return 'не е записан';
+  if (result.commentVerified === true) return 'записан и проверен';
+  if (result.commentVerified === false) return 'записан, без потвърждение';
+  return 'записан';
+}
+
 function buildMetaRows(result, device, address) {
   const { fix, capturedAt } = result;
   return [
@@ -363,6 +399,7 @@ function buildMetaRows(result, device, address) {
     ['Източник', SOURCE_LABELS[result.source] ?? result.source],
     ['Камера (устройство)', device ? [device.make, device.model].filter(Boolean).join(' ') : null],
     ['EXIF GPS', describeExif(result)],
+    ['Коментар в EXIF', describeComment(result)],
     ['Воден знак', result.watermarked ? 'да' : 'не'],
     ['Размер на файла', formatBytes(result.size)],
   ];
@@ -373,6 +410,11 @@ function showResult(result, { device = null, address = getState().address } = {}
   reviewUrl = URL.createObjectURL(result.blob);
   ui.renderReviewPhoto(refs, reviewUrl);
   ui.renderMeta(refs, buildMetaRows(result, device, address));
+  ui.renderReviewComment(refs, {
+    comment: result.comment ?? '',
+    saved: Boolean(result.recordId),
+  });
+  ui.renderSaveLabel(refs, { saved: Boolean(result.recordId) });
   ui.setReviewVisible(refs, true);
 
   const asFile = new File([result.blob], result.filename, {
@@ -444,13 +486,16 @@ function currentFile() {
 }
 
 function summaryText(result) {
-  if (!result?.fix) return 'Снимка без GPS координати';
-  return coordinateSummary(result.fix.latitude, result.fix.longitude, {
-    accuracy: result.fix.accuracy,
-    altitude: result.fix.altitude,
-    timestamp: result.capturedAt.getTime(),
-    address: getState().address,
-  });
+  if (!result?.fix) return withCommentSummary('Снимка без GPS координати', result?.comment);
+  return withCommentSummary(
+    coordinateSummary(result.fix.latitude, result.fix.longitude, {
+      accuracy: result.fix.accuracy,
+      altitude: result.fix.altitude,
+      timestamp: result.capturedAt.getTime(),
+      address: getState().address,
+    }),
+    result.comment,
+  );
 }
 
 function downloadPhoto() {
@@ -635,7 +680,7 @@ async function captureMapForResult(result) {
 }
 
 async function saveToGallery() {
-  const result = getState().result;
+  let result = getState().result;
   if (!result) {
     console.error('saveToGallery: no result in state');
     ui.showToast(refs, 'Няма снимка за запазване.');
@@ -650,6 +695,18 @@ async function saveToGallery() {
     ui.showToast(refs, 'IndexedDB не е достъпен — запазването е невъзможно.');
     return;
   }
+
+  // A photo opened from the gallery already owns a record: update its comment in
+  // place instead of writing a second copy of the same photo + map.
+  if (result.recordId) {
+    await updateSavedComment();
+    return;
+  }
+
+  // The comment may have been edited in the review after the shutter was pressed:
+  // bring the JPEG in sync first, so the file, the record and the EXIF agree.
+  const synced = await syncPhotoComment(result);
+  if (synced) result = applySyncedComment(result, synced);
 
   ui.setBusy(refs.btnSave, true, 'Запазване…');
   try {
@@ -688,6 +745,14 @@ async function saveToGallery() {
       accuracy: result.fix?.accuracy ?? null,
       altitude: result.fix?.altitude ?? null,
       address: getState().address ?? null,
+      // Third element of the record: photo + mini-map + comment live in one object,
+      // so `deletePhoto(id)` always removes all three of them together.
+      comment: normalizeComment(result.comment),
+      commentUpdatedAt: hasComment(result.comment) ? Date.now() : null,
+      // The text that actually sits in the JPEG (XPComment) - kept so a later save
+      // can tell whether the file still matches the comment.
+      exifComment: result.exifComment ?? normalizeComment(result.comment),
+      schemaVersion: 2,
       source: result.source,
       watermarked: Boolean(result.watermarked),
       exifApplied: Boolean(result.exif.applied),
@@ -712,16 +777,131 @@ async function saveToGallery() {
       blobSize: photoRecord.blob?.size,
       hasMap: photoRecord.hasMap,
       mapBlobSize: photoRecord.mapBlob?.size,
+      hasComment: hasComment(photoRecord.comment),
     });
 
     await storage.savePhoto(photoRecord);
+
+    // Remember the id so a second press updates the comment instead of writing a
+    // duplicate, and clear the draft under the shutter - the text now belongs to
+    // this photo (the result keeps its own frozen copy).
+    setState({ result: { ...result, recordId: photoRecord.id }, comment: '' });
+    ui.renderReviewComment(refs, { comment: photoRecord.comment, saved: true });
+    ui.renderStageComment(refs, '');
+
     await refreshGallery();
-    ui.showToast(refs, 'Снимката' + (mapFields?.mapBlob ? ' и картата' : '') + ' са запазени в галерията.');
+
+    const stored = ['снимката'];
+    if (mapFields?.mapBlob) stored.push('картата');
+    if (hasComment(photoRecord.comment)) stored.push('коментарът');
+    ui.showToast(refs, `Запазени в галерията: ${stored.join(', ')}.`);
   } catch (error) {
     console.error('saveToGallery error:', error);
     ui.showToast(refs, error instanceof Error ? error.message : 'Запазването не успя.');
   } finally {
+    // setBusy(false) restores the previous label, so the label is re-rendered from
+    // the current state right after it (a saved photo now updates its comment).
     ui.setBusy(refs.btnSave, false);
+    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId) });
+  }
+}
+
+/**
+ * Writes the (possibly edited) comment of the current result into its JPEG.
+ *
+ * The comment is typed before the shutter, but it can also be edited in the review
+ * afterwards - this keeps the file in sync with the text, so a later download or
+ * share carries exactly the comment shown in the app.
+ *
+ * @param {object} result
+ * @returns {Promise<{ blob: Blob, comment: string }|null>} null when the file is fine
+ */
+async function syncPhotoComment(result) {
+  const comment = normalizeComment(result?.comment);
+  if (comment === (result?.exifComment ?? '')) return null;
+  if (!result?.blob) return null;
+
+  const patched = await exif.writeCommentToBlob(result.blob, comment);
+  if (!patched.applied) {
+    if (patched.reason && patched.reason !== 'без промяна') {
+      console.warn('Коментарът не влезе в EXIF:', patched.reason);
+      return null;
+    }
+  }
+  return { blob: patched.blob, comment };
+}
+
+/**
+ * Stores a synced result back into the state and refreshes the rows that depend on
+ * the file (size), so the review card never lies about what is on disk.
+ */
+function applySyncedComment(result, synced) {
+  const next = {
+    ...result,
+    comment: synced.comment,
+    exifComment: synced.comment,
+    blob: synced.blob,
+    size: synced.blob.size,
+    // The tag was patched after the capture, so the read-back check no longer
+    // describes this exact text - be honest about it in the review card.
+    commentVerified: null,
+  };
+  setState({ result: next });
+  ui.renderMeta(refs, buildMetaRows(next, next.device ?? null, getState().address));
+  return next;
+}
+
+/**
+ * "Запази коментара" for a record that already exists in the gallery.
+ *
+ * Only the comment field of the existing record is rewritten: the photo and the
+ * mini-map blobs stay byte-identical, so the triple still cannot drift apart.
+ */
+async function updateSavedComment() {
+  const result = getState().result;
+  if (!result?.recordId) return;
+
+  ui.setBusy(refs.btnSave, true, 'Запазване…');
+  try {
+    const comment = normalizeComment(result.comment);
+    const synced = await syncPhotoComment(result);
+
+    // Only the comment changes unless the edited text also had to go into the JPEG.
+    const updated = synced
+      ? await storage.updatePhoto(result.recordId, {
+          comment,
+          commentUpdatedAt: Date.now(),
+          blob: synced.blob,
+          size: synced.blob.size,
+          exifComment: synced.comment,
+        })
+      : await storage.updatePhotoComment(result.recordId, comment);
+
+    if (!updated) {
+      // The record was deleted in another tab: fall back to "save as new".
+      setState({ result: { ...result, recordId: null } });
+      ui.renderReviewComment(refs, { comment: result.comment ?? '', saved: false });
+      ui.showToast(refs, 'Снимката вече не е в галерията — запиши я отново.');
+      await refreshGallery();
+      return;
+    }
+
+    if (synced) {
+      applySyncedComment(result, synced);
+    } else {
+      setState({ result: { ...result, comment } });
+    }
+    ui.renderReviewComment(refs, { comment, saved: true });
+    await refreshGallery();
+    ui.showToast(refs, hasComment(comment) ? 'Коментарът е обновен.' : 'Коментарът е премахнат.', {
+      timeout: 4000,
+    });
+  } catch (error) {
+    console.error('updateSavedComment error:', error);
+    ui.showToast(refs, error instanceof Error ? error.message : 'Обновяването не успя.');
+  } finally {
+    ui.setBusy(refs.btnSave, false);
+    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId) });
   }
 }
 
@@ -739,6 +919,10 @@ function openGalleryItem(record) {
   showResult(
     {
       blob: record.blob,
+      /** Existing record: "Запази коментара" updates it instead of duplicating. */
+      recordId: record.id,
+      comment: record.comment ?? '',
+      exifComment: record.exifComment ?? '',
       fix,
       capturedAt: new Date(record.createdAt),
       source: record.source ?? 'gallery',
@@ -748,8 +932,11 @@ function openGalleryItem(record) {
       exif: {
         applied: Boolean(record.exifApplied),
         gpsWritten: Boolean(record.gpsWritten),
+        commentWritten: Boolean(record.comment),
         reason: 'от галерията',
       },
+      /** The file was written earlier - only a fresh capture verifies the tag. */
+      commentVerified: null,
       verification: {
         verified: Boolean(record.gpsWritten),
         distance: null,
@@ -767,6 +954,13 @@ function openGalleryItem(record) {
 }
 
 async function deleteGalleryItem(record) {
+  // Explicit confirmation: the photo, its mini-map and its comment are one record
+  // and disappear together, so the user should not be surprised by the sweep.
+  const confirmed = globalThis.confirm?.(
+    'Да изтрия ли снимката?\n\nЗаедно с нея ще се изтрият миникартата и коментарът.',
+  );
+  if (confirmed === false) return;
+
   await storage.deletePhoto(record.id);
   const urls = galleryUrls.get(record.id);
   if (urls) {
@@ -778,13 +972,19 @@ async function deleteGalleryItem(record) {
     galleryUrls.delete(record.id);
   }
   await refreshGallery();
-  ui.showToast(refs, 'Снимката е изтрита.');
+  ui.showToast(refs, 'Снимката, миникартата и коментарът са изтрити.');
 }
 
 async function clearGallery() {
+  // Same wording as a single delete: the comment belongs to the photo, so it goes too.
+  const confirmed = globalThis.confirm?.(
+    'Да изчистя ли цялата галерия?\n\nВсяка снимка ще бъде изтрита заедно със своята миникарта и коментар.',
+  );
+  if (confirmed === false) return;
+
   await storage.clearPhotos();
   await refreshGallery();
-  ui.showToast(refs, 'Галерията е изчистена.');
+  ui.showToast(refs, 'Галерията е изчистена (снимки, карти и коментари).');
 }
 
 /* ------------------------------------------------------- wiring and bootstrap */
@@ -811,6 +1011,19 @@ function wireEvents() {
 
   refs.chkWatermark?.addEventListener('change', () => {
     setState({ watermark: refs.chkWatermark.checked });
+  });
+
+  // Comment draft under the shutter. It is NOT normalised while typing (that would
+  // move the caret around); the frozen copy is normalised when the shutter fires.
+  refs.commentInput?.addEventListener('input', () => {
+    setState({ comment: refs.commentInput.value });
+    ui.updateCommentCount(refs, refs.commentInput.value);
+  });
+
+  // Comment of the review card feeds the result that "Запази в галерията" stores.
+  refs.reviewComment?.addEventListener('input', () => {
+    const result = getState().result;
+    if (result) setState({ result: { ...result, comment: refs.reviewComment.value } });
   });
 
   refs.btnDownload?.addEventListener('click', () => downloadPhoto());
@@ -871,6 +1084,10 @@ function init() {
     refs.chkWatermark.checked = true;
     setState({ watermark: true });
   }
+
+  // Draft comment: show the initial "0/500" counter without touching the field on
+  // every render (renderAll must never fight the phone keyboard for the caret).
+  ui.renderStageComment(refs, getState().comment);
 
   // Keeps the "fix преди N с" counter live without re-rendering on every event.
   hudTimer = setInterval(renderAll, 1000);

@@ -4,12 +4,15 @@
  */
 
 import { createStore, entries, get, set, del, clear } from 'idb-keyval';
+import { normalizeComment } from '../utils/comment.js';
 import { groupByWeekAndDay } from '../utils/date.js';
 
 const DB_NAME = 'image-coordinate';
 const PHOTO_STORE = 'photos';
 const GEOCODE_STORE = 'geocode';
 const GEOCODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+/** 1 = photo + map, 2 = + comment (older records simply lack the field). */
+const SCHEMA_VERSION = 2;
 
 let photoStore = null;
 let geocodeStore = null;
@@ -24,6 +27,25 @@ function stores() {
 
 export function isAvailable() {
   return typeof indexedDB !== 'undefined';
+}
+
+/**
+ * Fills the defaults for records written before a field existed.
+ *
+ * Records are self-describing, so there is no migration to run: a photo saved by
+ * v1.0 (photo + map only) is read as a v2 record with an empty comment.
+ *
+ * @param {unknown} value
+ * @returns {PhotoRecord|null}
+ */
+function normalizeRecord(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    ...value,
+    comment: typeof value.comment === 'string' ? value.comment : '',
+    commentUpdatedAt: Number.isFinite(value.commentUpdatedAt) ? value.commentUpdatedAt : null,
+    schemaVersion: Number.isFinite(value.schemaVersion) ? value.schemaVersion : 1,
+  };
 }
 
 /**
@@ -43,6 +65,11 @@ export function isAvailable() {
  * @property {number} size
  * @property {Blob} blob
  * @property {Blob|null} thumb
+ * // Comment field (the third element of the photo + map + comment association):
+ * @property {string} comment            // '' when the user did not write one
+ * @property {number|null} commentUpdatedAt
+ * @property {string} exifComment        // text actually written into the JPEG (XPComment)
+ * @property {number} schemaVersion      // 1 = photo + map, 2 = + comment
  * // NEW map fields:
  * @property {Blob|null} mapBlob         // WebP map image
  * @property {Blob|null} mapThumb        // Map thumbnail
@@ -51,12 +78,63 @@ export function isAvailable() {
  * @property {boolean} hasMap
  */
 
-/** @param {PhotoRecord} record */
+/**
+ * Writes a brand new record (or overwrites one with the same id).
+ *
+ * Photo, mini-map and comment are stored together in this single object, which is
+ * what guarantees that they can never drift apart: {@link deletePhoto} removes the
+ * whole record, so all three disappear in one transaction.
+ *
+ * @param {PhotoRecord} record
+ */
 export async function savePhoto(record) {
   const target = stores();
   if (!target) throw new Error('IndexedDB не е достъпен (частен режим?).');
-  await set(record.id, record, target.photoStore);
-  return record;
+  const next = normalizeRecord({
+    ...record,
+    comment: normalizeComment(record?.comment),
+    commentUpdatedAt: Number.isFinite(record?.commentUpdatedAt) ? record.commentUpdatedAt : null,
+    schemaVersion: SCHEMA_VERSION,
+  });
+  await set(next.id, next, target.photoStore);
+  return next;
+}
+
+/**
+ * Updates fields of an existing record without touching the blobs.
+ *
+ * Used by "Запази коментара" for a photo opened from the gallery: the photo and the
+ * map stay byte-identical, only the comment (and its timestamp) change.
+ *
+ * @param {string} id
+ * @param {Partial<PhotoRecord>} patch
+ * @returns {Promise<PhotoRecord|null>} the stored record, or null when it is gone
+ */
+export async function updatePhoto(id, patch = {}) {
+  const target = stores();
+  if (!target) throw new Error('IndexedDB не е достъпен (частен режим?).');
+  const current = normalizeRecord(await get(id, target.photoStore));
+  if (!current) return null;
+  const next = normalizeRecord({
+    ...current,
+    ...patch,
+    commentUpdatedAt: Number.isFinite(patch.commentUpdatedAt)
+      ? patch.commentUpdatedAt
+      : current.commentUpdatedAt,
+  });
+  await set(id, next, target.photoStore);
+  return next;
+}
+
+/**
+ * Convenience wrapper for the comment field of the review card.
+ *
+ * @param {string} id
+ * @param {string} comment
+ * @returns {Promise<PhotoRecord|null>}
+ */
+export async function updatePhotoComment(id, comment) {
+  return updatePhoto(id, { comment: normalizeComment(comment), commentUpdatedAt: Date.now() });
 }
 
 export async function listPhotos() {
@@ -64,7 +142,7 @@ export async function listPhotos() {
   if (!target) return [];
   const items = await entries(target.photoStore);
   return items
-    .map(([, value]) => value)
+    .map(([, value]) => normalizeRecord(value))
     .filter(Boolean)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
@@ -78,7 +156,7 @@ export async function listPhotosGrouped() {
 export async function getPhoto(id) {
   const target = stores();
   if (!target) return null;
-  return (await get(id, target.photoStore)) ?? null;
+  return normalizeRecord(await get(id, target.photoStore));
 }
 
 export async function deletePhoto(id) {

@@ -15,6 +15,12 @@
 import * as piexifModule from 'piexif-ts';
 
 import { blobToBinaryString, blobToBytes, binaryStringToBlob } from '../utils/binary.js';
+import {
+  decodeXpComment,
+  encodeXpComment,
+  hasComment,
+  normalizeComment,
+} from '../utils/comment.js';
 import { exifr } from '../utils/exifr.js';
 import { distanceMeters } from './geolocation.js';
 import {
@@ -37,6 +43,8 @@ export const IMAGE_IFD = Object.freeze({
   Software: 305,
   DateTime: 306,
   Artist: 315,
+  /** Windows/EXIF comment, type BYTE: a UTF-16LE byte array (Cyrillic safe). */
+  XPComment: 40092,
 });
 
 export const EXIF_IFD = Object.freeze({
@@ -121,7 +129,17 @@ function cloneExifObject(binary) {
   }
 }
 
-function applyTags(exifObj, { fix, capturedAt, source, address, pixelSize, resetOrientation }) {
+/**
+ * Sets or clears the comment tag. `XPComment` is the only tag that can carry
+ * Cyrillic text in a way Windows Explorer and classic EXIF viewers understand
+ * (`UserComment` is typed ASCII by piexif and would mangle anything > U+007F).
+ */
+function applyCommentTag(exifObj, comment) {
+  if (hasComment(comment)) exifObj['0th'][IMAGE_IFD.XPComment] = encodeXpComment(comment);
+  else delete exifObj['0th'][IMAGE_IFD.XPComment];
+}
+
+function applyTags(exifObj, { fix, capturedAt, source, address, pixelSize, resetOrientation, comment = '' }) {
   exifObj['0th'][IMAGE_IFD.ImageDescription] = buildDescription({
     fix,
     capturedAt,
@@ -140,6 +158,8 @@ function applyTags(exifObj, { fix, capturedAt, source, address, pixelSize, reset
   }
 
   if (resetOrientation) exifObj['0th'][IMAGE_IFD.Orientation] = 1;
+
+  applyCommentTag(exifObj, comment);
 
   if (fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude)) {
     const gps = exifObj.GPS ?? (exifObj.GPS = {});
@@ -174,7 +194,14 @@ function dumpWithFallback(exifObj) {
     try {
       return piexif.dump(exifObj);
     } catch (secondError) {
-      throw secondError instanceof Error ? secondError : firstError;
+      // Last resort: drop the comment tag too - a rejected byte array must never
+      // cost us the GPS coordinates.
+      if (exifObj['0th']) delete exifObj['0th'][IMAGE_IFD.XPComment];
+      try {
+        return piexif.dump(exifObj);
+      } catch {
+        throw secondError instanceof Error ? secondError : firstError;
+      }
     }
   }
 }
@@ -188,9 +215,9 @@ function dumpWithFallback(exifObj) {
  * @param {Blob} blob
  * @param {{ fix?: object|null, address?: string|null, capturedAt?: Date,
  *           source?: string, pixelSize?: {width:number,height:number}|null,
- *           resetOrientation?: boolean }} options
+ *           resetOrientation?: boolean, comment?: string }} options
  * @returns {Promise<{ blob: Blob, applied: boolean, gpsWritten: boolean, reason?: string,
- *                     tags?: object }>}
+ *                     commentWritten?: boolean, tags?: object }>}
  */
 export async function writeGeoExif(blob, options = {}) {
   const {
@@ -200,6 +227,7 @@ export async function writeGeoExif(blob, options = {}) {
     source = 'browser',
     pixelSize = null,
     resetOrientation = false,
+    comment = '',
   } = options;
 
   if (!isSupported()) return { blob, applied: false, gpsWritten: false, reason: 'piexif-ts недостъпен' };
@@ -213,11 +241,20 @@ export async function writeGeoExif(blob, options = {}) {
   }
 
   const hasFix = Boolean(fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude));
+  const hasText = hasComment(comment);
 
   try {
     const binary = await blobToBinaryString(blob);
     const exifObj = cloneExifObject(binary);
-    applyTags(exifObj, { fix, capturedAt, source, address, pixelSize, resetOrientation });
+    applyTags(exifObj, {
+      fix,
+      capturedAt,
+      source,
+      address,
+      pixelSize,
+      resetOrientation,
+      comment,
+    });
     const dumped = dumpWithFallback(exifObj);
     const inserted = piexif.insert(dumped, binary);
     const tagged = binaryStringToBlob(inserted, 'image/jpeg');
@@ -226,12 +263,14 @@ export async function writeGeoExif(blob, options = {}) {
       blob: tagged,
       applied: true,
       gpsWritten: hasFix,
+      commentWritten: hasText,
       tags: {
         description: exifObj['0th'][IMAGE_IFD.ImageDescription],
         dateTime: exifObj['0th'][IMAGE_IFD.DateTime],
         latitude: hasFix ? fix.latitude : null,
         longitude: hasFix ? fix.longitude : null,
         accuracy: hasFix && Number.isFinite(fix.accuracy) ? fix.accuracy : null,
+        comment: hasText ? normalizeComment(comment) : null,
       },
     };
   } catch (error) {
@@ -239,8 +278,72 @@ export async function writeGeoExif(blob, options = {}) {
       blob,
       applied: false,
       gpsWritten: false,
+      commentWritten: false,
       reason: error instanceof Error ? error.message : 'EXIF записът неуспешен',
     };
+  }
+}
+
+/**
+ * Updates **only** the comment tag of a JPEG: pixels untouched, every other tag kept.
+ *
+ * Needed when the comment is edited after the shutter was pressed (or when an already
+ * saved photo gets a new comment): the file then carries exactly the text that the
+ * gallery record carries.
+ *
+ * @param {Blob} blob
+ * @param {string} comment
+ * @returns {Promise<{ blob: Blob, applied: boolean, comment: string, reason?: string }>}
+ */
+export async function writeCommentToBlob(blob, comment) {
+  const text = normalizeComment(comment);
+  if (!isSupported()) {
+    return { blob, applied: false, comment: text, reason: 'piexif-ts недостъпен' };
+  }
+  if (blob.type && blob.type !== 'image/jpeg') {
+    return {
+      blob,
+      applied: false,
+      comment: text,
+      reason: `EXIF се записва само в JPEG (получено: ${blob.type})`,
+    };
+  }
+
+  try {
+    const binary = await blobToBinaryString(blob);
+    const exifObj = cloneExifObject(binary);
+    const current = decodeXpComment(exifObj['0th']?.[IMAGE_IFD.XPComment]);
+    // Nothing to do when the file already carries exactly this text.
+    if (current === text) return { blob, applied: false, comment: text, reason: 'без промяна' };
+
+    applyCommentTag(exifObj, text);
+    const inserted = piexif.insert(dumpWithFallback(exifObj), binary);
+    return { blob: binaryStringToBlob(inserted, 'image/jpeg'), applied: true, comment: text };
+  } catch (error) {
+    return {
+      blob,
+      applied: false,
+      comment: text,
+      reason: error instanceof Error ? error.message : 'EXIF записът неуспешен',
+    };
+  }
+}
+
+/**
+ * Reads the comment back out of a JPEG (Windows Explorer writes the same tag, so
+ * this also returns comments coming from the device).
+ *
+ * @param {Blob} blob
+ * @returns {Promise<string|null>} null when the file carries no comment
+ */
+export async function readCommentFromBlob(blob) {
+  if (!isSupported()) return null;
+  try {
+    const loaded = piexif.load(await blobToBinaryString(blob));
+    const comment = decodeXpComment(loaded?.['0th']?.[IMAGE_IFD.XPComment]);
+    return comment || null;
+  } catch {
+    return null;
   }
 }
 

@@ -22,6 +22,7 @@
 | **Карта** | Leaflet + OpenStreetMap: маркер, кръг на точността, popup |
 | **Обратен геокодинг** | Nominatim → адрес на български, с кеш (памет + IndexedDB) и спазване на rate limit-а |
 | **Галерия** | IndexedDB (`idb-keyval`): миниатюри, отваряне, изтриване — работи офлайн |
+| **Коментар към снимката** | Поле за бележка под затвора; снимката, миникартата и коментарът се пазят като **един запис** — изтриеш ли снимката, изчезват и трите. Коментарът може да се редактира и за вече запазена снимка |
 | **Споделяне** | Web Share API с файла (Android/iOS) + fallback за изтегляне и копиране на координатите |
 | **PWA** | Manifest, service worker (`vite-plugin-pwa`), инсталируемо на home screen, офлайн shell |
 | **Wake Lock** | Екранът не заспива, докато снимаш |
@@ -58,7 +59,7 @@ npm.cmd run icons        # генерира PWA иконките (без зав�
 npm.cmd run dev          # http://localhost:5173  (работи за тест на компютъра)
 npm.cmd run build        # production build в dist/
 npm.cmd run preview      # преглед на build-а
-npm.cmd test             # Vitest (24 теста: координати + EXIF round-trip)
+npm.cmd test             # Vitest (19 теста: нормализация на коментар + XPComment UTF-16LE)
 ```
 
 ### Тестване на реален телефон — избери един от вариантите
@@ -99,6 +100,12 @@ npm.cmd run dev -- --host
    - **Запази в галерията** (IndexedDB) / **Нова снимка**
 5. **„Снимай с нативната камера“** — отваря камерата на телефона (максимална резолюция).
    Приложението чете EXIF-а на устройството и/или добавя твоя GPS fix.
+6. **Полето за коментар** (под затвора) — текстът се „замразява“ **заедно с координатите**
+   при натискане на затвора и се вижда/редактира в ревюто. „Запази в галерията“ записва
+   снимката, миникартата и коментара като един запис; тостът изброява какво е запазено.
+   При снимка, отворена от галерията, бутонът става **„Запази коментара“** и обновява само
+   бележката — снимката и картата остават непроменени.
+   Изтриването пита за потвърждение и маха **снимката, миникартата и коментара** наведнъж.
 
 ### Проверка на резултата
 - На телефона: отвори снимката в галерията → „Информация“/„Детайли“ → виж картата.
@@ -118,6 +125,7 @@ src/
   styles/                   tokens.css · base.css · app.css (dark/light, dvh, safe-area)
   utils/
     coords.js               DD↔DMS, EXIF rationals, формати, линкове, име на файл
+    comment.js              нормализация/преглед на коментар + XPComment (UTF-16LE)
     binary.js               Blob ↔ binary string (chunked!), Blob ↔ base64
     image.js                decodeImage, createCanvas, createThumbnail, canvasToBlob
     exifr.js                нормализиране на exifr (UMD/ESM) + readGps/readMetadata
@@ -138,7 +146,7 @@ public/
   icon.svg                  favicon
   icons/                    генерирани PNG (192, 512, maskable, apple-touch)
 scripts/make-icons.mjs      чист Node PNG енкодер + self-check
-tests/                      Vitest: coords.test.js, exif.test.js
+tests/                      Vitest: comment.test.js (нормализация + XPComment encoding)
 vite.config.js              PWA плъгин + опционален локален HTTPS
 ```
 
@@ -164,6 +172,20 @@ vite.config.js              PWA плъгин + опционален локале
   (haversine) и UI-ът показва „проверен (Δ x.xx m)“ или причината.
 - **Кеширане на адреса**: `Nominatim /reverse?format=jsonv2&addressdetails=1`, сериализирана
   опашка ≥1.2 s, кеш в паметта + IndexedDB (30 дни), тих fallback при офлайн/429.
+- **Един запис за трите елемента**: store-ът `photos` пази `blob`/`thumb` (снимка),
+  `mapBlob`/`mapThumb` (миникарта) и `comment` в **един и същ обект**, затова
+  `deletePhoto(id)` ги маха наведнъж — без каскадно изтриване и без възможност за „сираци“.
+  Записи от v1.0 (без `comment`) се четат като `''` — няма миграция.
+- **Коментарът** е чернова в `state.comment` (полето под затвора) и се замразява в
+  `result.comment` при заснемане — точно както GPS fix-ът. Нормализира се (trim, свиване на
+  whitespace, ≤ 500 знака) при замразяване и при запис. За снимка от галерията
+  `storage.updatePhotoComment(id, text)` пренаписва само полето `comment` в записа, а
+  `saveToGallery` помни `result.recordId`, за да не създаде втори запис на същата снимка.
+  В `src/utils/comment.js` живеят и `encodeXpComment`/`decodeXpComment` — UTF-16LE
+  byte-масив за EXIF тага `XPComment` (40092), единственият вариант, който пази кирилица
+  (тагът `UserComment` е типизиран ASCII в piexif и не се използва). Коментарът влиза в
+  JPEG-а още при заснемането (`writeGeoExif`), а `exif.writeCommentToBlob` подменя **само**
+  APP1 блока, когато текстът бъде редактиран в ревюто — пикселите никога не се пипат.
 
 ---
 

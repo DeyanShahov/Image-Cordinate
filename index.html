@@ -71,6 +71,18 @@
             <input id="chk-watermark" type="checkbox" />
             <span>воден знак с координати</span>
           </label>
+
+          <label class="comment comment--stage" for="comment-input">
+            <span class="comment__label">Коментар (по избор)</span>
+            <textarea
+              id="comment-input"
+              class="comment__input"
+              rows="2"
+              maxlength="500"
+              placeholder="Напр. „Кутията с документи до входа“"
+            ></textarea>
+            <span id="comment-count" class="comment__count">0/500</span>
+          </label>
         </div>
       </section>
 
@@ -100,6 +112,17 @@
         <div class="review__grid">
           <img id="review-photo" class="review__photo" alt="Заснетата снимка" />
           <div class="review__body">
+            <div class="comment comment--review">
+              <label class="comment__label" for="review-comment">Коментар</label>
+              <textarea
+                id="review-comment"
+                class="comment__input"
+                rows="2"
+                maxlength="500"
+                placeholder="Добави коментар към снимката…"
+              ></textarea>
+              <p id="review-comment-hint" class="comment__hint hint"></p>
+            </div>
             <ul id="review-meta" class="meta"></ul>
             <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
             <div id="map-preview" class="review__map-preview-container" hidden></div>

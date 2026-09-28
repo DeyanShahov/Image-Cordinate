@@ -12,6 +12,11 @@ import {
   formatDuration,
 } from '../utils/coords.js';
 import { CAMERA_STATES, GPS_STATES } from '../state.js';
+import {
+  MAX_COMMENT_LENGTH,
+  hasComment,
+  truncateComment,
+} from '../utils/comment.js';
 
 // Session storage key for collapsed day states
 const COLLAPSED_DAYS_KEY = 'gallery-collapsed-days';
@@ -67,6 +72,8 @@ export function createRefs(root = document) {
     btnTorch: pick('btn-torch'),
     zoomRange: pick('zoom-range'),
     chkWatermark: pick('chk-watermark'),
+    commentInput: pick('comment-input'),
+    commentCount: pick('comment-count'),
     start: pick('start'),
     btnStart: pick('btn-start'),
     btnNative: pick('btn-native'),
@@ -75,6 +82,8 @@ export function createRefs(root = document) {
     review: pick('review'),
     reviewPhoto: pick('review-photo'),
     reviewMeta: pick('review-meta'),
+    reviewComment: pick('review-comment'),
+    reviewCommentHint: pick('review-comment-hint'),
     map: pick('map'),
     reviewNote: pick('review-note'),
     btnDownload: pick('btn-download'),
@@ -219,6 +228,51 @@ export function renderReviewPhoto(refs, url) {
   if (refs.reviewPhoto) refs.reviewPhoto.src = url;
 }
 
+/* --------------------------------------------------------------- comment field */
+
+/**
+ * Comment draft shown under the shutter.
+ *
+ * Called only on explicit events (never from the 1s render timer) and it writes to
+ * the textarea only when the value really differs, so the caret never jumps while
+ * the user is typing on a phone keyboard.
+ */
+export function renderStageComment(refs, comment) {
+  const value = comment ?? '';
+  if (refs.commentInput && refs.commentInput.value !== value) refs.commentInput.value = value;
+  updateCommentCount(refs, value);
+}
+
+/** Live "123/500" counter next to the draft field. */
+export function updateCommentCount(refs, value) {
+  if (!refs.commentCount) return;
+  const used = typeof value === 'string' ? value.length : 0;
+  setText(refs.commentCount, `${used}/${MAX_COMMENT_LENGTH}`);
+  setAttr(refs.commentCount, 'data-state', used >= MAX_COMMENT_LENGTH * 0.9 ? 'warn' : 'ok');
+}
+
+/**
+ * Comment field of the review card.
+ *
+ * `saved` marks a record that already exists in the gallery: the primary button then
+ * updates the stored comment instead of saving a second copy of the photo.
+ */
+export function renderReviewComment(refs, { comment = '', saved = false } = {}) {
+  const value = comment ?? '';
+  if (refs.reviewComment && refs.reviewComment.value !== value) refs.reviewComment.value = value;
+  setText(
+    refs.reviewCommentHint,
+    saved
+      ? 'Коментарът е записан в галерията — „Запази коментара“ го обновява.'
+      : 'Коментарът ще се запази заедно със снимката и миникартата.',
+  );
+}
+
+/** Swaps the primary button between "save as new" and "update the stored comment". */
+export function renderSaveLabel(refs, { saved = false } = {}) {
+  if (refs.btnSave) refs.btnSave.textContent = saved ? 'Запази коментара' : 'Запази в галерията';
+}
+
 export function setReviewNote(refs, message) {
   setText(refs.reviewNote, message ?? '');
   show(refs.reviewNote, Boolean(message));
@@ -307,6 +361,8 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
                   : 'без координати';
                 
                 const hasMap = Boolean(item.hasMap && item.mapThumbUrl);
+                const hasText = hasComment(item.comment);
+                const commentPreview = truncateComment(item.comment);
 
                 return el('li', { class: 'tile' + (hasMap ? ' tile--has-map' : '') },
                   el('button', {
@@ -322,7 +378,10 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
                         src: item.thumbUrl ?? item.url ?? '',
                         alt: 'Запазена снимка',
                         loading: 'lazy',
-                      })
+                      }),
+                      hasText
+                        ? el('span', { class: 'tile__comment-badge', 'aria-hidden': 'true' }, '💬')
+                        : null
                     ),
                     // Map thumbnail (right) - NEW
                     hasMap ? el('div', { class: 'tile__media tile__media--map' },
@@ -340,6 +399,7 @@ export function renderGallery(refs, weeks, { onOpen, onDelete } = {}) {
                     class: 'tile__meta',
                     text: `${formatDateTime(new Date(item.createdAt))} · ${formatBytes(item.size ?? 0)}`,
                   }),
+                  hasText ? el('span', { class: 'tile__comment', text: commentPreview, title: item.comment }) : null,
                   el('button', {
                     class: 'tile__del',
                     type: 'button',

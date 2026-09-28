@@ -37,6 +37,12 @@ const initialState = {
   error: null,
   /** Result of the last capture (photo blob, metadata, exif report). */
   result: null,
+  /**
+   * Comment draft from the field under the shutter. It is frozen into the result
+   * when the shutter is pressed, exactly like the GPS fix, so every photo keeps its
+   * own text and a later edit in the review does not leak into the next capture.
+   */
+  comment: '',
   /** Watermark toggle from the UI. */
   watermark: true,
   /** Video input devices that reported a label. */

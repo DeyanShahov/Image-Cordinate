@@ -283,8 +283,13 @@ export function renderReviewComment(refs, { comment = '', saved = false } = {}) 
 }
 
 /** Swaps the primary button between "save as new" and "update the stored comment". */
-export function renderSaveLabel(refs, { saved = false } = {}) {
-  if (refs.btnSave) refs.btnSave.textContent = saved ? 'Запази коментара' : 'Запази в галерията';
+export function renderSaveLabel(refs, { saved = false, hasDrawingChanges = false } = {}) {
+  if (!refs.btnSave) return;
+  if (saved) {
+    refs.btnSave.textContent = hasDrawingChanges ? 'Запази промените' : 'Запази коментара';
+  } else {
+    refs.btnSave.textContent = 'Запази в галерията';
+  }
 }
 
 export function setReviewNote(refs, message) {

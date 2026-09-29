@@ -564,9 +564,10 @@ let drawingController = null;
 
 function initDrawingForReview(result) {
   // Clean up previous drawing controller if any
-  if (drawingController) {
-    // No explicit cleanup needed, just replace
+  if (drawingController && drawingController._cleanup) {
+    drawingController._cleanup();
   }
+  drawingController = null;
 
   // Get the displayed image dimensions
   const img = refs.reviewPhoto;
@@ -637,6 +638,7 @@ function initDrawingForReview(result) {
     refs.btnDoneDraw.onclick = () => {
       refs.drawCanvas.style.pointerEvents = 'none';
       ui.hideDrawToolbar(refs);
+      updateSaveButtonLabel();
     };
   }
 
@@ -693,6 +695,37 @@ function initDrawingForReview(result) {
   };
   document.addEventListener('keydown', keydownHandler);
 
+  // Helper to update save button label based on drawing state
+  const updateSaveButtonLabel = () => {
+    const hasDrawing = drawingController && drawingController.hasStrokes();
+    const saved = Boolean(getState().result?.recordId);
+    ui.renderSaveLabel(refs, { saved, hasDrawingChanges: hasDrawing });
+  };
+
+  // Update button label after stroke changes
+  const originalEndStroke = drawingController.endStroke.bind(drawingController);
+  drawingController.endStroke = () => {
+    originalEndStroke();
+    updateSaveButtonLabel();
+  };
+
+  const originalUndo = drawingController.undo.bind(drawingController);
+  drawingController.undo = () => {
+    const result = originalUndo();
+    updateSaveButtonLabel();
+    return result;
+  };
+
+  const originalClear = drawingController.clear.bind(drawingController);
+  drawingController.clear = () => {
+    const result = originalClear();
+    updateSaveButtonLabel();
+    return result;
+  };
+
+  // Initial label update
+  updateSaveButtonLabel();
+
   // Store cleanup handler on controller for later removal
   drawingController._cleanup = () => {
     document.removeEventListener('keydown', keydownHandler);
@@ -715,7 +748,7 @@ function showResult(result, { device = null, address = getState().address } = {}
     comment: result.comment ?? '',
     saved: Boolean(result.recordId),
   });
-  ui.renderSaveLabel(refs, { saved: Boolean(result.recordId) });
+  ui.renderSaveLabel(refs, { saved: Boolean(result.recordId), hasDrawingChanges: false });
   ui.setReviewVisible(refs, true);
 
   // Navigation actions: only meaningful when the photo has a fix at all.
@@ -792,6 +825,7 @@ function clearResult() {
   ui.renderMeta(refs, []);
   ui.setReviewNote(refs, null);
   ui.renderMapPreview(refs, null, null, null);
+  ui.renderSaveLabel(refs, { saved: false, hasDrawingChanges: false });
   setState({ result: null, phase: PHASES.LIVE });
 }
 
@@ -1280,7 +1314,8 @@ async function saveToGallery() {
     // setBusy(false) restores the previous label, so the label is re-rendered from
     // the current state right after it (a saved photo now updates its comment).
     ui.setBusy(refs.btnSave, false);
-    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId) });
+    const hasDrawing = drawingController && drawingController.hasStrokes();
+    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId), hasDrawingChanges: hasDrawing });
   }
 }
 
@@ -1344,6 +1379,26 @@ async function updateSavedComment() {
     const comment = normalizeComment(result.comment);
     const synced = await syncPhotoComment(result);
 
+    // If there are drawing strokes, bake them into the image blob first
+    let blobToSave = result.blob;
+    let sizeToSave = result.size;
+    if (drawingController && drawingController.hasStrokes()) {
+      ui.setBusy(refs.btnSave, true, 'Прилагане на анотации…');
+      try {
+        const bakedBlob = await drawingController.bake(result.blob);
+        blobToSave = bakedBlob;
+        sizeToSave = bakedBlob.size;
+        // Update the displayed image to show baked version
+        if (reviewUrl) URL.revokeObjectURL(reviewUrl);
+        reviewUrl = URL.createObjectURL(bakedBlob);
+        ui.renderReviewPhoto(refs, reviewUrl);
+        ui.renderMeta(refs, buildMetaRows(result, result.device ?? null, result.address ?? getState().address));
+      } catch (e) {
+        console.error('Drawing bake failed:', e);
+        ui.showToast(refs, 'Неуспешно прилагане на анотациите.');
+      }
+    }
+
     // Only the comment changes unless the edited text also had to go into the JPEG.
     const updated = synced
       ? await storage.updatePhoto(result.recordId, {
@@ -1353,7 +1408,12 @@ async function updateSavedComment() {
           size: synced.blob.size,
           exifComment: synced.comment,
         })
-      : await storage.updatePhotoComment(result.recordId, comment);
+      : await storage.updatePhoto(result.recordId, {
+          comment,
+          commentUpdatedAt: Date.now(),
+          blob: blobToSave,
+          size: sizeToSave,
+        });
 
     if (!updated) {
       // The record was deleted in another tab: fall back to "save as new".
@@ -1367,7 +1427,7 @@ async function updateSavedComment() {
     if (synced) {
       applySyncedComment(result, synced);
     } else {
-      setState({ result: { ...result, comment } });
+      setState({ result: { ...result, comment, blob: blobToSave, size: sizeToSave } });
     }
     ui.renderReviewComment(refs, { comment, saved: true });
     await refreshGallery();
@@ -1379,7 +1439,8 @@ async function updateSavedComment() {
     ui.showToast(refs, error instanceof Error ? error.message : 'Обновяването не успя.');
   } finally {
     ui.setBusy(refs.btnSave, false);
-    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId) });
+    const hasDrawing = drawingController && drawingController.hasStrokes();
+    ui.renderSaveLabel(refs, { saved: Boolean(getState().result?.recordId), hasDrawingChanges: hasDrawing });
   }
 }
 

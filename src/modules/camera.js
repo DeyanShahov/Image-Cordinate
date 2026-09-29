@@ -82,7 +82,19 @@ export async function setTorch(on, track = getVideoTrack()) {
 
 export async function setZoom(value, track = getVideoTrack()) {
   if (!track) return false;
-  await track.applyConstraints({ advanced: [{ zoom: Number(value) }] });
+  
+  const capabilities = track.getCapabilities?.();
+  if (capabilities?.zoom) {
+    const min = capabilities.zoom.min;
+    const max = capabilities.zoom.max;
+    const clampedValue = Math.max(min, Math.min(max, Number(value)));
+    if (clampedValue !== Number(value)) {
+      console.warn(`Zoom value ${value} clamped to ${clampedValue} (range: ${min}-${max})`);
+    }
+    await track.applyConstraints({ advanced: [{ zoom: clampedValue }] });
+  } else {
+    await track.applyConstraints({ advanced: [{ zoom: Number(value) }] });
+  }
   return true;
 }
 

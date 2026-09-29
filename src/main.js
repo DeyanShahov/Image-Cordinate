@@ -135,7 +135,18 @@ async function startCameraFlow() {
     setState({ camera: CAMERA_STATES.ON, phase: PHASES.LIVE, error: null });
     ui.setStageVisible(refs, true);
     ui.setReviewVisible(refs, false);
-    applyTrackCapabilities();
+    
+    // Apply capabilities once the video metadata is loaded (stream is ready)
+    const onVideoReady = () => {
+      refs.video.removeEventListener('loadedmetadata', onVideoReady);
+      applyTrackCapabilities();
+    };
+    if (refs.video.readyState >= 1) { // HAVE_METADATA
+      applyTrackCapabilities();
+    } else {
+      refs.video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+    }
+    
     void wakelock.acquireWakeLock();
     void refreshCameraList();
   } catch (error) {
@@ -151,17 +162,29 @@ async function startCameraFlow() {
 
 function applyTrackCapabilities() {
   const track = camera.getVideoTrack();
+  if (!track) {
+    console.warn('applyTrackCapabilities: no video track');
+    ui.setZoomRange(refs, { min: 1, max: 1 });
+    return;
+  }
+  
   const capabilities = camera.getCapabilities(track);
+  console.log('Camera capabilities:', capabilities);
   ui.setTorchAvailable(refs, Boolean(capabilities.torch));
 
   if (capabilities.zoom && capabilities.zoom.max > capabilities.zoom.min) {
+    const currentZoom = track.getSettings?.().zoom ?? capabilities.zoom.min;
+    console.log('Zoom range:', capabilities.zoom.min, '-', capabilities.zoom.max, 'step:', capabilities.zoom.step, 'current:', currentZoom);
     ui.setZoomRange(refs, {
       min: capabilities.zoom.min,
       max: capabilities.zoom.max,
       step: capabilities.zoom.step || 0.1,
-      value: track?.getSettings?.().zoom ?? capabilities.zoom.min,
+      value: currentZoom,
     });
+    // Ensure the slider reflects the actual current zoom
+    refs.zoomRange.value = String(currentZoom);
   } else {
+    console.log('Zoom not supported or min == max');
     ui.setZoomRange(refs, { min: 1, max: 1 });
   }
 }
@@ -181,7 +204,17 @@ async function toggleCamera() {
     const stream = await camera.startStream({ facingMode: next });
     await camera.attachStream(stream, refs.video);
     currentFacing = next;
-    applyTrackCapabilities();
+    
+    // Apply capabilities once the video metadata is loaded (stream is ready)
+    const onVideoReady = () => {
+      refs.video.removeEventListener('loadedmetadata', onVideoReady);
+      applyTrackCapabilities();
+    };
+    if (refs.video.readyState >= 1) { // HAVE_METADATA
+      applyTrackCapabilities();
+    } else {
+      refs.video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+    }
   } catch (error) {
     ui.showToast(refs, describeMediaError(error));
   }
@@ -1545,8 +1578,21 @@ function wireEvents() {
     }
   });
 
-  refs.zoomRange?.addEventListener('input', () => {
-    void camera.setZoom(refs.zoomRange.value).catch(() => {});
+  refs.zoomRange?.addEventListener('input', async () => {
+    try {
+      await camera.setZoom(refs.zoomRange.value);
+    } catch (error) {
+      console.warn('Zoom failed:', error);
+      // Reset slider to current actual zoom if possible
+      const track = camera.getVideoTrack();
+      if (track) {
+        const currentZoom = track.getSettings?.().zoom;
+        if (currentZoom !== undefined) {
+          refs.zoomRange.value = String(currentZoom);
+        }
+      }
+      ui.showToast(refs, 'Зуум не е поддържан или стойността е невалидна.', { timeout: 3000 });
+    }
   });
 
   refs.chkWatermark?.addEventListener('change', () => {

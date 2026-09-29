@@ -62,7 +62,7 @@ async function fetchReverse(latitude, longitude, signal) {
     lon: String(longitude),
     zoom: '18',
     addressdetails: '1',
-    'accept-language': 'bg,en',
+    'accept-language': 'de,en',
   });
 
   const response = await fetch(`${ENDPOINT}?${params.toString()}`, {

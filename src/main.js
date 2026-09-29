@@ -31,7 +31,7 @@ import { hasComment, normalizeComment, withCommentSummary } from './utils/commen
 import { createThumbnail } from './utils/image.js';
 import * as camera from './modules/camera.js';
 import * as exif from './modules/exif.js';
-import { reverseGeocode } from './modules/geocode.js';
+import { reverseGeocode, clearMemoryCache } from './modules/geocode.js';
 import * as geo from './modules/geolocation.js';
 import * as inbox from './modules/inbox.js';
 import * as mapModule from './modules/map.js';
@@ -1394,6 +1394,11 @@ function init() {
   guardEnvironment();
   wireEvents();
   subscribe(renderAll);
+
+  // Clear geocode memory cache since we changed the language from Bulgarian to German
+  clearMemoryCache();
+  // Also clear the persistent IndexedDB cache to force fresh geocoding requests
+  storage.clearGeocodeCache();
 
   if (refs.chkWatermark) {
     refs.chkWatermark.checked = true;

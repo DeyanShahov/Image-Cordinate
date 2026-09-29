@@ -43,6 +43,7 @@ import * as storage from './modules/storage.js';
 import * as ui from './modules/ui.js';
 import * as wakelock from './modules/wakelock.js';
 import * as watermark from './modules/watermark.js';
+import * as drawing from './modules/drawing.js';
 
 const refs = ui.createRefs();
 
@@ -555,6 +556,156 @@ function buildMetaRows(result, device, address) {
   ];
 }
 
+/**
+ * Initializes the drawing overlay for the review photo.
+ * @param {object} result - The photo result object with blob, fix, etc.
+ */
+let drawingController = null;
+
+function initDrawingForReview(result) {
+  // Clean up previous drawing controller if any
+  if (drawingController) {
+    // No explicit cleanup needed, just replace
+  }
+
+  // Get the displayed image dimensions
+  const img = refs.reviewPhoto;
+  if (!img || !img.naturalWidth) {
+    // Image not loaded yet, wait for it
+    img?.addEventListener('load', () => initDrawingForReview(result), { once: true });
+    return;
+  }
+
+  const displayWidth = img.clientWidth;
+  const displayHeight = img.clientHeight;
+  const naturalWidth = img.naturalWidth;
+  const naturalHeight = img.naturalHeight;
+
+  // Create drawing controller
+  drawingController = drawing.createDrawingController(
+    refs.drawCanvas,
+    naturalWidth,
+    naturalHeight
+  );
+
+  // Set display size for rendering
+  drawingController.setDisplaySize(displayWidth, displayHeight);
+
+  // Resize canvas overlay to match displayed image
+  ui.resizeDrawCanvas(refs, displayWidth, displayHeight);
+
+  // Enable pointer events on canvas for drawing
+  refs.drawCanvas.style.pointerEvents = 'auto';
+
+  // Show toolbar
+  ui.showDrawToolbar(refs, drawingController);
+
+  // --- Event handlers ---
+
+  // Color selection
+  refs.drawColorBtns?.forEach(btn => {
+    btn.onclick = () => {
+      const color = btn.dataset.color;
+      drawingController.setColor(color);
+      ui.setActiveDrawColor(refs, color);
+    };
+  });
+
+  // Width selection
+  if (refs.drawWidthSelect) {
+    refs.drawWidthSelect.onchange = (e) => {
+      drawingController.setWidth(Number(e.target.value));
+    };
+  }
+
+  // Undo
+  if (refs.btnUndo) {
+    refs.btnUndo.onclick = () => {
+      drawingController.undo();
+    };
+  }
+
+  // Clear
+  if (refs.btnClearDraw) {
+    refs.btnClearDraw.onclick = () => {
+      drawingController.clear();
+    };
+  }
+
+  // Done - hide toolbar, disable drawing
+  if (refs.btnDoneDraw) {
+    refs.btnDoneDraw.onclick = () => {
+      refs.drawCanvas.style.pointerEvents = 'none';
+      ui.hideDrawToolbar(refs);
+    };
+  }
+
+  // Drawing events on canvas
+  let isDrawing = false;
+
+  const getClientCoords = (e) => {
+    const rect = refs.drawCanvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { clientX, clientY, rect };
+  };
+
+  refs.drawCanvas.onpointerdown = (e) => {
+    if (e.button !== 0) return; // only left click / touch
+    isDrawing = true;
+    const { clientX, clientY } = getClientCoords(e);
+    drawingController.startStroke(clientX, clientY);
+    refs.drawCanvas.setPointerCapture(e.pointerId);
+  };
+
+  refs.drawCanvas.onpointermove = (e) => {
+    if (!isDrawing) return;
+    const { clientX, clientY } = getClientCoords(e);
+    drawingController.continueStroke(clientX, clientY);
+  };
+
+  refs.drawCanvas.onpointerup = (e) => {
+    if (!isDrawing) return;
+    isDrawing = false;
+    drawingController.endStroke();
+    refs.drawCanvas.releasePointerCapture(e.pointerId);
+  };
+
+  refs.drawCanvas.onpointercancel = (e) => {
+    if (!isDrawing) return;
+    isDrawing = false;
+    drawingController.cancelStroke();
+    refs.drawCanvas.releasePointerCapture(e.pointerId);
+  };
+
+  refs.drawCanvas.onpointerleave = (e) => {
+    if (!isDrawing) return;
+    isDrawing = false;
+    drawingController.endStroke();
+  };
+
+  // Keyboard shortcut: Ctrl+Z for undo
+  const keydownHandler = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      drawingController.undo();
+    }
+  };
+  document.addEventListener('keydown', keydownHandler);
+
+  // Store cleanup handler on controller for later removal
+  drawingController._cleanup = () => {
+    document.removeEventListener('keydown', keydownHandler);
+    refs.drawCanvas.onpointerdown = null;
+    refs.drawCanvas.onpointermove = null;
+    refs.drawCanvas.onpointerup = null;
+    refs.drawCanvas.onpointercancel = null;
+    refs.drawCanvas.onpointerleave = null;
+    refs.drawCanvas.style.pointerEvents = 'none';
+    ui.hideDrawToolbar(refs);
+  };
+}
+
 function showResult(result, { device = null, address = getState().address } = {}) {
   if (reviewUrl) URL.revokeObjectURL(reviewUrl);
   reviewUrl = URL.createObjectURL(result.blob);
@@ -617,9 +768,18 @@ function showResult(result, { device = null, address = getState().address } = {}
   });
 
   refs.review?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Initialize drawing overlay for the review photo
+  initDrawingForReview(result);
 }
 
 function clearResult() {
+  // Clean up drawing controller
+  if (drawingController && drawingController._cleanup) {
+    drawingController._cleanup();
+    drawingController = null;
+  }
+
   if (reviewUrl) {
     URL.revokeObjectURL(reviewUrl);
     reviewUrl = null;
@@ -660,11 +820,23 @@ function summaryText(result) {
   });
 }
 
-function downloadPhoto() {
+async function downloadPhoto() {
   const result = getState().result;
   if (!result || !result.blob) return;
 
-  share.downloadBlob(result.blob, result.filename);
+  // If there are drawing strokes, bake them into the image before download
+  let blobToDownload = result.blob;
+  if (drawingController && drawingController.hasStrokes()) {
+    ui.showToast(refs, 'Прилагане на анотации…', { timeout: 3000 });
+    try {
+      blobToDownload = await drawingController.bake(result.blob);
+    } catch (e) {
+      console.error('Drawing bake failed:', e);
+      ui.showToast(refs, 'Неуспешно прилагане на анотациите.');
+    }
+  }
+
+  share.downloadBlob(blobToDownload, result.filename);
   ui.showToast(refs, `Изтеглена снимка: ${result.filename}`, { timeout: 4000 });
 }
 
@@ -718,8 +890,21 @@ async function downloadMap() {
 
 async function shareResult() {
   const result = getState().result;
-  const file = currentFile();
-  if (!result || !file) return;
+  if (!result || !result.blob) return;
+
+  // If there are drawing strokes, bake them into the image before sharing
+  let blobToShare = result.blob;
+  if (drawingController && drawingController.hasStrokes()) {
+    ui.showToast(refs, 'Прилагане на анотации…', { timeout: 3000 });
+    try {
+      blobToShare = await drawingController.bake(result.blob);
+    } catch (e) {
+      console.error('Drawing bake failed:', e);
+      ui.showToast(refs, 'Неуспешно прилагане на анотациите.');
+    }
+  }
+
+  const file = new File([blobToShare], result.filename, { type: blobToShare.type || 'image/jpeg' });
   try {
     await share.shareFile(file, {
       title: 'Снимка с координати',
@@ -983,6 +1168,23 @@ async function saveToGallery() {
   // bring the JPEG in sync first, so the file, the record and the EXIF agree.
   const synced = await syncPhotoComment(result);
   if (synced) result = applySyncedComment(result, synced);
+
+  // If there are drawing strokes, bake them into the image blob
+  if (drawingController && drawingController.hasStrokes()) {
+    ui.setBusy(refs.btnSave, true, 'Прилагане на анотации…');
+    try {
+      const bakedBlob = await drawingController.bake(result.blob);
+      result = { ...result, blob: bakedBlob, size: bakedBlob.size };
+      // Update the displayed image to show baked version
+      if (reviewUrl) URL.revokeObjectURL(reviewUrl);
+      reviewUrl = URL.createObjectURL(bakedBlob);
+      ui.renderReviewPhoto(refs, reviewUrl);
+      ui.renderMeta(refs, buildMetaRows(result, result.device ?? null, result.address ?? getState().address));
+    } catch (e) {
+      console.error('Drawing bake failed:', e);
+      ui.showToast(refs, 'Неуспешно прилагане на анотациите.');
+    }
+  }
 
   ui.setBusy(refs.btnSave, true, 'Запазване…');
   try {

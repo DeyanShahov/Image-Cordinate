@@ -137,6 +137,24 @@
             <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
             <div id="map-preview" class="review__map-preview-container" hidden></div>
             <div id="qr-panel" class="qr" hidden></div>
+            <div id="draw-toolbar" class="draw-toolbar" hidden>
+              <div class="draw-tools">
+                <button class="draw-color" data-color="#e53935" aria-label="Червен" style="background:#e53935" title="Червен"></button>
+                <button class="draw-color" data-color="#1e88e5" aria-label="Син" style="background:#1e88e5" title="Син"></button>
+                <button class="draw-color" data-color="#43a047" aria-label="Зелен" style="background:#43a047" title="Зелен"></button>
+                <select id="draw-width" class="draw-width-select" aria-label="Дебелина на писалка">
+                  <option value="2">Тънка (2px)</option>
+                  <option value="4" selected>Средна (4px)</option>
+                  <option value="8">Дебела (8px)</option>
+                </select>
+              </div>
+              <div class="draw-actions">
+                <button id="btn-undo" class="icon-btn" aria-label="Отмени" title="Отмени (Ctrl+Z)">↩</button>
+                <button id="btn-clear-draw" class="icon-btn" aria-label="Изчисти всичко" title="Изчисти всичко">🗑</button>
+                <button id="btn-done-draw" class="btn btn--primary" aria-label="Готово">Готово</button>
+              </div>
+            </div>
+            <canvas id="draw-canvas" class="draw-canvas" aria-hidden="true"></canvas>
             <div class="actions">
               <button id="btn-navigate" class="btn btn--primary" hidden>🧭 Навигирай</button>
               <button id="btn-download" class="btn">Изтегли снимка</button>

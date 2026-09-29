@@ -108,6 +108,13 @@ export function createRefs(root = document) {
     toast: pick('toast'),
     mapPreviewContainer: pick('map-preview'),
     qrPanel: pick('qr-panel'),
+    drawToolbar: pick('draw-toolbar'),
+    drawCanvas: pick('draw-canvas'),
+    btnUndo: pick('btn-undo'),
+    btnClearDraw: pick('btn-clear-draw'),
+    btnDoneDraw: pick('btn-done-draw'),
+    drawWidthSelect: pick('draw-width'),
+    drawColorBtns: root.querySelectorAll('.draw-color'),
   };
 }
 
@@ -515,4 +522,60 @@ export function renderQrPanel(refs, canvas, text = '') {
     }),
   );
   container.hidden = false;
+}
+
+/* ---------------------------------------------------------------- drawing */
+
+/**
+ * Shows the drawing toolbar and sets up color/width selection.
+ * @param {object} refs
+ * @param {object} drawing - Drawing controller from drawing.js
+ */
+export function showDrawToolbar(refs, drawing) {
+  if (!refs.drawToolbar) return;
+  refs.drawToolbar.hidden = false;
+
+  // Set active color
+  const currentColor = drawing.currentColor();
+  refs.drawColorBtns?.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color === currentColor);
+  });
+
+  // Set width select
+  if (refs.drawWidthSelect) {
+    refs.drawWidthSelect.value = String(drawing.currentWidth());
+  }
+}
+
+/**
+ * Hides the drawing toolbar.
+ * @param {object} refs
+ */
+export function hideDrawToolbar(refs) {
+  if (!refs.drawToolbar) return;
+  refs.drawToolbar.hidden = true;
+}
+
+/**
+ * Updates the active color button visual state.
+ * @param {object} refs
+ * @param {string} color
+ */
+export function setActiveDrawColor(refs, color) {
+  refs.drawColorBtns?.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color === color);
+  });
+}
+
+/**
+ * Resizes the drawing canvas to match the displayed image size.
+ * @param {object} refs
+ * @param {number} displayWidth
+ * @param {number} displayHeight
+ */
+export function resizeDrawCanvas(refs, displayWidth, displayHeight) {
+  if (!refs.drawCanvas) return;
+  refs.drawCanvas.style.width = `${displayWidth}px`;
+  refs.drawCanvas.style.height = `${displayHeight}px`;
+  // The drawing controller will handle internal canvas sizing via setDisplaySize
 }

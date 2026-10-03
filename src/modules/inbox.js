@@ -9,22 +9,12 @@
  * The module is imported by `src/sw.js` as well, so it must stay free of DOM access.
  */
 
-import { createStore, del, get, set } from 'idb-keyval';
+import { del, get, set } from 'idb-keyval';
+import { stores } from './storage.js';
 
-const DB_NAME = 'image-coordinate';
-const INBOX_STORE = 'inbox';
 const INBOX_KEY = 'shared-photo';
 /** A shared photo is only interesting right after the share happened. */
 const MAX_AGE_MS = 1000 * 60 * 10;
-
-let store = null;
-
-function inboxStore() {
-  if (store) return store;
-  if (typeof indexedDB === 'undefined') return null;
-  store = createStore(DB_NAME, INBOX_STORE);
-  return store;
-}
 
 /**
  * Stores a shared file (called from the service worker).
@@ -34,10 +24,10 @@ function inboxStore() {
  * @returns {Promise<boolean>} false when IndexedDB is unavailable
  */
 export async function putSharedPhoto(blob, meta = {}) {
-  const target = inboxStore();
-  if (!target || !blob) return false;
+  const { inboxStore } = stores();
+  if (!inboxStore || !blob) return false;
   try {
-    await set(INBOX_KEY, { at: Date.now(), blob, ...meta }, target);
+    await set(INBOX_KEY, { at: Date.now(), blob, ...meta }, inboxStore);
     return true;
   } catch {
     return false;
@@ -50,12 +40,12 @@ export async function putSharedPhoto(blob, meta = {}) {
  * @returns {Promise<{ blob: Blob, name?: string|null, type?: string|null, at: number }|null>}
  */
 export async function takeSharedPhoto() {
-  const target = inboxStore();
-  if (!target) return null;
+  const { inboxStore } = stores();
+  if (!inboxStore) return null;
   try {
-    const entry = await get(INBOX_KEY, target);
+    const entry = await get(INBOX_KEY, inboxStore);
     if (!entry?.blob) return null;
-    await del(INBOX_KEY, target);
+    await del(INBOX_KEY, inboxStore);
     if (Date.now() - (entry.at ?? 0) > MAX_AGE_MS) return null;
     return entry;
   } catch {

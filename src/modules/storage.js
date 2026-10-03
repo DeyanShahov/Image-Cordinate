@@ -10,19 +10,22 @@ import { groupByWeekAndDay } from '../utils/date.js';
 const DB_NAME = 'image-coordinate';
 const PHOTO_STORE = 'photos';
 const GEOCODE_STORE = 'geocode';
+const INBOX_STORE = 'inbox';
 const GEOCODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 /** 1 = photo + map, 2 = + comment (older records simply lack the field). */
 const SCHEMA_VERSION = 2;
 
 let photoStore = null;
 let geocodeStore = null;
+let inboxStore = null;
 
 function stores() {
-  if (photoStore && geocodeStore) return { photoStore, geocodeStore };
+  if (photoStore && geocodeStore && inboxStore) return { photoStore, geocodeStore, inboxStore };
   if (typeof indexedDB === 'undefined') return null;
   photoStore = createStore(DB_NAME, PHOTO_STORE);
   geocodeStore = createStore(DB_NAME, GEOCODE_STORE);
-  return { photoStore, geocodeStore };
+  inboxStore = createStore(DB_NAME, INBOX_STORE);
+  return { photoStore, geocodeStore, inboxStore };
 }
 
 export function isAvailable() {

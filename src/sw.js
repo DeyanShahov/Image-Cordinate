@@ -71,6 +71,10 @@ self.addEventListener('fetch', (event) => {
  * @returns {Promise<Response>}
  */
 async function handleShareTarget(request) {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return new Response('Expected multipart/form-data', { status: 400 });
+  }
   try {
     const formData = await request.formData();
     const file = formData.get('photo');

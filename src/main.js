@@ -1532,9 +1532,6 @@ function openGalleryItem(record) {
       },
       /** The file was written earlier - only a fresh capture verifies the tag. */
       commentVerified: null,
-    },
-    { device: null, address: record.address },
-  );
       capturedAt: new Date(record.createdAt),
       source: record.source ?? 'gallery',
       watermarked: Boolean(record.watermarked),

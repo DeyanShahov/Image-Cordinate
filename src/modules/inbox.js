@@ -10,16 +10,12 @@
  */
 
 import { openDB } from 'idb';
-import { del, get, set } from 'idb-keyval';
 
-const INBOX_KEY = 'shared-photo';
+const DB_NAME = 'image-coordinate';
+const DB_VERSION = 4;
 /** A shared photo is only interesting right after the share happened. */
 const MAX_AGE_MS = 1000 * 60 * 10;
-
-async function getInboxStore() {
-  const db = await openDB('image-coordinate', 4);
-  return db.transaction('inbox', 'readwrite').objectStore('inbox');
-}
+const INBOX_KEY = 'shared-photo';
 
 /**
  * Stores a shared file (called from the service worker).
@@ -31,8 +27,8 @@ async function getInboxStore() {
 export async function putSharedPhoto(blob, meta = {}) {
   if (!blob) return false;
   try {
-    const db = await openDB('image-coordinate', 4);
-    await db.put('inbox', { at: Date.now(), blob, ...meta }, 'shared-photo');
+    const db = await openDB(DB_NAME, DB_VERSION);
+    await db.put('inbox', { at: Date.now(), blob, ...meta }, INBOX_KEY);
     return true;
   } catch {
     return false;
@@ -46,11 +42,11 @@ export async function putSharedPhoto(blob, meta = {}) {
  */
 export async function takeSharedPhoto() {
   try {
-    const db = await openDB('image-coordinate', 4);
-    const entry = await db.get('inbox', 'shared-photo');
+    const db = await openDB(DB_NAME, DB_VERSION);
+    const entry = await db.get('inbox', INBOX_KEY);
     if (!entry?.blob) return null;
-    await db.delete('inbox', 'shared-photo');
-    if (Date.now() - (entry.at ?? 0) > 1000 * 60 * 10) return null;
+    await db.delete('inbox', INBOX_KEY);
+    if (Date.now() - (entry.at ?? 0) > MAX_AGE_MS) return null;
     return entry;
   } catch {
     return null;

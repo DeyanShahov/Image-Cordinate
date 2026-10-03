@@ -343,7 +343,7 @@ async function importPhoto(file) {
     const extension = (file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
 
     // Fire weather request for the imported photo too (non-blocking, best-effort).
-    const weather = await fetchWeather(fix.latitude, fix.longitude, capturedAt).catch(() => null);
+    const weather = await fetchWeather(fix.latitude, fix.longitude).catch(() => null);
 
     showResult(
       {
@@ -445,8 +445,11 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
   const hasFix = Boolean(fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude));
   const wantsQr = Boolean(state.qr) && hasFix;
 
-  // Fire the weather request ASAP – it runs in parallel with watermark/EXIF.
-  const weatherPromise = hasFix ? fetchWeather(fix.latitude, fix.longitude, capturedAt) : Promise.resolve(null);
+  // Fire the weather request first: it then runs in parallel with the QR generation and
+  // the canvas re-encode of the watermark.
+  const weatherPromise = hasFix ? fetchWeather(fix.latitude, fix.longitude) : Promise.resolve(null);
+  /** @type {{ temperature: number, humidity: number, source: string }|null} */
+  let weather = null;
 
   if (state.watermark || wantsQr) {
     let qrMatrix = null;
@@ -462,12 +465,17 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
       }
     }
 
+    // The weather request had the QR time to arrive, so it can be burned into the same
+    // re-encode as the coordinates - the only way for it to reach the pixels.
+    weather = await weatherPromise;
+
     try {
       const stamped = await watermark.withWatermark(photo, {
         fix,
         address: state.address,
         capturedAt,
         qrMatrix,
+        weather,
       });
       photo = stamped.blob;
       watermarked = true;
@@ -478,8 +486,9 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     }
   }
 
-  // Wait for the weather (or timeout) before writing EXIF / building the result.
-  const weather = await weatherPromise;
+  // Wait for the weather (or its timeout) before writing EXIF / building the result.
+  // Awaiting an already resolved promise is free, so this covers the no-watermark case.
+  weather = await weatherPromise;
 
   const exifResult = await exif.writeGeoExif(photo, {
     fix,

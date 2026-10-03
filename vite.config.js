@@ -40,7 +40,7 @@ export default defineConfig({
   },
   // piexif-ts ships a legacy package.json (no "exports" map) -> pre-bundle it.
   optimizeDeps: {
-    include: ['piexif-ts', 'exifr', 'idb-keyval', 'leaflet', 'qrcode-generator'],
+    include: ['piexif-ts', 'exifr', 'idb', 'leaflet', 'qrcode-generator'],
   },
   build: {
     target: 'es2022',

@@ -1,45 +1,64 @@
 /**
- * IndexedDB persistence (idb-keyval) for the offline gallery and the Nominatim cache.
+ * IndexedDB persistence for the offline gallery and the Nominatim cache.
  * Everything stays on the device - nothing is uploaded anywhere.
+ *
+ * Uses the small `idb` wrapper so the database is opened with a **version** and an
+ * `upgrade` callback - that is what creates the stores on first run and adds the
+ * `inbox` store to databases created by older releases.
  */
 
 import { openDB } from 'idb';
-import { del, get, set } from 'idb-keyval';
+
+import { normalizeComment } from '../utils/comment.js';
+import { groupByWeekAndDay } from '../utils/date.js';
 
 const DB_NAME = 'image-coordinate';
 const PHOTO_STORE = 'photos';
 const GEOCODE_STORE = 'geocode';
 const INBOX_STORE = 'inbox';
 const GEOCODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-/** DB schema version - increment when stores change. */
+/** Record shape version: 1 = photo + map, 2 = + comment. */
+const SCHEMA_VERSION = 2;
+/** IndexedDB version: 1 photos, 2 geocode, 3 inbox, 4 current. */
 const DB_VERSION = 4;
 
-/**
- * Opens (or upgrades) the database. Runs once per version bump.
- */
-async function getDb() {
-  return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
-      if (oldVersion < 1) {
-        db.createObjectStore(PHOTO_STORE);
-      }
-      if (oldVersion < 2) {
-        db.createObjectStore(GEOCODE_STORE);
-      }
-      if (oldVersion < 3) {
-        db.createObjectStore(INBOX_STORE);
-      }
-      // v4: future migrations go here
-    },
-  });
-}
+let dbPromise = null;
 
 /**
- * Generic helpers using the versioned DB.
+ * Opens (or upgrades) the database. The connection is cached, but the cached promise is
+ * dropped when the browser terminates it, so the next call re-opens cleanly.
  */
-async function withStore(storeName, mode, callback) {
-  const db = await getDb();
-  return db.transaction(storeName, mode).objectStore(storeName);
+function getDb() {
+  if (!dbPromise) {
+    dbPromise = openDB(DB_NAME, DB_VERSION, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1 && !db.objectStoreNames.contains(PHOTO_STORE)) {
+          db.createObjectStore(PHOTO_STORE);
+        }
+        if (oldVersion < 2 && !db.objectStoreNames.contains(GEOCODE_STORE)) {
+          db.createObjectStore(GEOCODE_STORE);
+        }
+        if (oldVersion < 3 && !db.objectStoreNames.contains(INBOX_STORE)) {
+          db.createObjectStore(INBOX_STORE);
+        }
+      },
+      /** Another tab is upgrading: release our connection so it is not blocked. */
+      blocking() {
+        const pending = dbPromise;
+        dbPromise = null;
+        void pending?.then((db) => db.close()).catch(() => {});
+      },
+      /** We are waiting for another tab to close its older connection. */
+      blocked() {
+        console.warn('[storage] Изчакване на друга отворена вкладка да освободи базата…');
+      },
+      /** The browser closed the connection: forget it so the next call re-opens. */
+      terminated() {
+        dbPromise = null;
+      },
+    });
+  }
+  return dbPromise;
 }
 
 export function isAvailable() {
@@ -107,15 +126,14 @@ function normalizeRecord(value) {
  * @param {PhotoRecord} record
  */
 export async function savePhoto(record) {
-  const target = stores();
-  if (!target) throw new Error('IndexedDB не е достъпен (частен режим?).');
+  const db = await getDb();
   const next = normalizeRecord({
     ...record,
     comment: normalizeComment(record?.comment),
     commentUpdatedAt: Number.isFinite(record?.commentUpdatedAt) ? record.commentUpdatedAt : null,
     schemaVersion: SCHEMA_VERSION,
   });
-  await set(next.id, next, target.photoStore);
+  await db.put(PHOTO_STORE, next, next.id);
   return next;
 }
 
@@ -130,9 +148,8 @@ export async function savePhoto(record) {
  * @returns {Promise<PhotoRecord|null>} the stored record, or null when it is gone
  */
 export async function updatePhoto(id, patch = {}) {
-  const target = stores();
-  if (!target) throw new Error('IndexedDB не е достъпен (частен режим?).');
-  const current = normalizeRecord(await get(id, target.photoStore));
+  const db = await getDb();
+  const current = normalizeRecord(await db.get(PHOTO_STORE, id));
   if (!current) return null;
   const next = normalizeRecord({
     ...current,
@@ -141,7 +158,7 @@ export async function updatePhoto(id, patch = {}) {
       ? patch.commentUpdatedAt
       : current.commentUpdatedAt,
   });
-  await set(id, next, target.photoStore);
+  await db.put(PHOTO_STORE, next, id);
   return next;
 }
 
@@ -157,11 +174,10 @@ export async function updatePhotoComment(id, comment) {
 }
 
 export async function listPhotos() {
-  const target = stores();
-  if (!target) return [];
-  const items = await entries(target.photoStore);
+  const db = await getDb();
+  const items = await db.getAll(PHOTO_STORE);
   return items
-    .map(([, value]) => normalizeRecord(value))
+    .map((value) => normalizeRecord(value))
     .filter(Boolean)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
@@ -173,34 +189,29 @@ export async function listPhotosGrouped() {
 }
 
 export async function getPhoto(id) {
-  const target = stores();
-  if (!target) return null;
-  return normalizeRecord(await get(id, target.photoStore));
+  const db = await getDb();
+  return normalizeRecord(await db.get(PHOTO_STORE, id));
 }
 
 export async function deletePhoto(id) {
-  const target = stores();
-  if (!target) return;
-  await del(id, target.photoStore);
+  const db = await getDb();
+  await db.delete(PHOTO_STORE, id);
 }
 
 export async function clearPhotos() {
-  const target = stores();
-  if (!target) return;
-  await clear(target.photoStore);
+  const db = await getDb();
+  await db.clear(PHOTO_STORE);
 }
 
 export async function countPhotos() {
-  const target = stores();
-  if (!target) return 0;
-  return (await entries(target.photoStore)).length;
+  const db = await getDb();
+  return db.count(PHOTO_STORE);
 }
 
 export async function getCachedGeocode(key) {
-  const target = stores();
-  if (!target) return null;
+  const db = await getDb();
   try {
-    const entry = await get(key, target.geocodeStore);
+    const entry = await db.get(GEOCODE_STORE, key);
     if (!entry) return null;
     if (Date.now() - (entry.at ?? 0) > GEOCODE_TTL_MS) return null;
     return entry.value ?? null;
@@ -210,17 +221,16 @@ export async function getCachedGeocode(key) {
 }
 
 export async function setCachedGeocode(key, value) {
-  const target = stores();
-  if (!target || !value) return;
+  if (!value) return;
+  const db = await getDb();
   try {
-    await set(key, { at: Date.now(), value }, target.geocodeStore);
+    await db.put(GEOCODE_STORE, { at: Date.now(), value }, key);
   } catch {
     /* cache is best effort */
   }
 }
 
 export async function clearGeocodeCache() {
-  const target = stores();
-  if (!target) return;
-  await clear(target.geocodeStore);
+  const db = await getDb();
+  await db.clear(GEOCODE_STORE);
 }

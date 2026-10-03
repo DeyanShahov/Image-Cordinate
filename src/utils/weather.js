@@ -12,15 +12,16 @@ const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
 const FETCH_TIMEOUT_MS = 5000;
 
 /**
- * Fetches current temperature (°C) and relative humidity (%) for the given
- * coordinate at the given time (or "now" if the capture time is recent).
+ * Fetches the current temperature (°C) and relative humidity (%) for a coordinate.
+ *
+ * Note: the modern `current=` API is required - the legacy `current_weather=true`
+ * response does not contain humidity at all.
  *
  * @param {number} latitude
  * @param {number} longitude
- * @param {Date} capturedAt
  * @returns {Promise<{ temperature: number, humidity: number, source: string }|null>}
  */
-export async function fetchWeather(latitude, longitude, capturedAt) {
+export async function fetchWeather(latitude, longitude) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
   const controller = new AbortController();
@@ -30,9 +31,8 @@ export async function fetchWeather(latitude, longitude, capturedAt) {
     const params = new URLSearchParams({
       latitude: String(latitude),
       longitude: String(longitude),
-      current_weather: 'true',
-      relative_humidity: 'true',
-      timezone: 'UTC',
+      current: 'temperature_2m,relative_humidity_2m',
+      timezone: 'auto',
     });
 
     const response = await fetch(`${OPEN_METEO_URL}?${params}`, {
@@ -48,11 +48,12 @@ export async function fetchWeather(latitude, longitude, capturedAt) {
     }
 
     const data = await response.json();
-    const current = data.current_weather ?? data.current ?? null;
-    if (!current) return null;
+    const current = data.current ?? null;
+    // Keep reading the legacy shape as a fallback, in case the API changes back.
+    const legacy = data.current_weather ?? null;
 
-    const temperature = Number(current.temperature ?? current.temp_c);
-    const humidity = Number(current.relative_humidity ?? current.humidity);
+    const temperature = Number(current?.temperature_2m ?? legacy?.temperature);
+    const humidity = Number(current?.relative_humidity_2m ?? legacy?.relative_humidity);
 
     if (!Number.isFinite(temperature) || !Number.isFinite(humidity)) return null;
 
@@ -61,6 +62,7 @@ export async function fetchWeather(latitude, longitude, capturedAt) {
     if (error.name !== 'AbortError') {
       console.warn('[weather] fetch failed:', error.message);
     }
+    clearTimeout(timeoutId);
     return null;
   }
 }

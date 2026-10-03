@@ -3,29 +3,43 @@
  * Everything stays on the device - nothing is uploaded anywhere.
  */
 
-import { createStore, entries, get, set, del, clear } from 'idb-keyval';
-import { normalizeComment } from '../utils/comment.js';
-import { groupByWeekAndDay } from '../utils/date.js';
+import { openDB } from 'idb';
+import { del, get, set } from 'idb-keyval';
 
 const DB_NAME = 'image-coordinate';
 const PHOTO_STORE = 'photos';
 const GEOCODE_STORE = 'geocode';
 const INBOX_STORE = 'inbox';
 const GEOCODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-/** 1 = photo + map, 2 = + comment (older records simply lack the field). */
-const SCHEMA_VERSION = 2;
+/** DB schema version - increment when stores change. */
+const DB_VERSION = 4;
 
-let photoStore = null;
-let geocodeStore = null;
-let inboxStore = null;
+/**
+ * Opens (or upgrades) the database. Runs once per version bump.
+ */
+async function getDb() {
+  return openDB(DB_NAME, DB_VERSION, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore(PHOTO_STORE);
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore(GEOCODE_STORE);
+      }
+      if (oldVersion < 3) {
+        db.createObjectStore(INBOX_STORE);
+      }
+      // v4: future migrations go here
+    },
+  });
+}
 
-export function stores() {
-  if (photoStore && geocodeStore && inboxStore) return { photoStore, geocodeStore, inboxStore };
-  if (typeof indexedDB === 'undefined') return null;
-  photoStore = createStore(DB_NAME, PHOTO_STORE);
-  geocodeStore = createStore(DB_NAME, GEOCODE_STORE);
-  inboxStore = createStore(DB_NAME, INBOX_STORE);
-  return { photoStore, geocodeStore, inboxStore };
+/**
+ * Generic helpers using the versioned DB.
+ */
+async function withStore(storeName, mode, callback) {
+  const db = await getDb();
+  return db.transaction(storeName, mode).objectStore(storeName);
 }
 
 export function isAvailable() {

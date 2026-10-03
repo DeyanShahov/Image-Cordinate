@@ -70,6 +70,8 @@ function normalizeRecord(value) {
  * @property {number|null} commentUpdatedAt
  * @property {string} exifComment        // text actually written into the JPEG (XPComment)
  * @property {number} schemaVersion      // 1 = photo + map, 2 = + comment
+ * // Weather fields (schemaVersion 2):
+ * @property {object|null} weather       // { temperature, humidity, source }
  * // NEW map fields:
  * @property {Blob|null} mapBlob         // WebP map image
  * @property {Blob|null} mapThumb        // Map thumbnail

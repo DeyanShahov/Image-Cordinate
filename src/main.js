@@ -26,6 +26,7 @@ import {
   plainCoordinates,
 } from './utils/coords.js';
 import { encodeOlc } from './utils/olc.js';
+import { fetchWeather, hasWeather, weatherLine } from './utils/weather.js';
 import { describeGeolocationError, describeMediaError, describeShareError } from './utils/errors.js';
 import { hasComment, normalizeComment, withCommentSummary } from './utils/comment.js';
 import { createThumbnail } from './utils/image.js';
@@ -341,6 +342,9 @@ async function importPhoto(file) {
     const address = geocoded?.label ?? geocoded?.displayName ?? null;
     const extension = (file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
 
+    // Fire weather request for the imported photo too (non-blocking, best-effort).
+    const weather = await fetchWeather(fix.latitude, fix.longitude, capturedAt).catch(() => null);
+
     showResult(
       {
         blob: file,
@@ -367,6 +371,7 @@ async function importPhoto(file) {
           reason: 'координати, прочетени от EXIF на снимката',
         },
         commentVerified: null,
+        weather,
         size: file.size,
         filename: makePhotoFilename(capturedAt, fix.latitude, fix.longitude, extension),
       },
@@ -440,8 +445,9 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
   const hasFix = Boolean(fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude));
   const wantsQr = Boolean(state.qr) && hasFix;
 
-  // The QR code lives in the pixels, so asking for one means the photo has to be
-  // re-encoded - exactly like the watermark (which is therefore switched on too).
+  // Fire the weather request ASAP – it runs in parallel with watermark/EXIF.
+  const weatherPromise = hasFix ? fetchWeather(fix.latitude, fix.longitude, capturedAt) : Promise.resolve(null);
+
   if (state.watermark || wantsQr) {
     let qrMatrix = null;
 
@@ -471,6 +477,9 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
       ui.showToast(refs, `Водният знак не беше приложен: ${error.message}`);
     }
   }
+
+  // Wait for the weather (or timeout) before writing EXIF / building the result.
+  const weather = await weatherPromise;
 
   const exifResult = await exif.writeGeoExif(photo, {
     fix,
@@ -509,6 +518,8 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     watermarked,
     /** Whether the Google Maps QR code was drawn into the pixels. */
     qrBurned,
+    /** Weather at capture time (null when unavailable). */
+    weather,
     device,
     /**
      * Comment frozen with the shutter (see state.comment). It stays on the result so
@@ -566,6 +577,12 @@ function describeQr(result) {
   return getState().qr ? 'не е приложен' : null;
 }
 
+/** Human readable state of the weather inside the photo. */
+function describeWeather(result) {
+  if (!hasWeather(result.weather)) return null;
+  return weatherLine(result.weather);
+}
+
 function buildMetaRows(result, device, address) {
   const { fix, capturedAt } = result;
   return [
@@ -584,6 +601,7 @@ function buildMetaRows(result, device, address) {
     ['EXIF GPS', describeExif(result)],
     ['Коментар в EXIF', describeComment(result)],
     ['QR код', describeQr(result)],
+    ['Метео', describeWeather(result)],
     ['Воден знак', result.watermarked ? 'да' : 'не'],
     ['Размер на файла', formatBytes(result.size)],
   ];
@@ -1297,6 +1315,7 @@ async function saveToGallery() {
       // The text that actually sits in the JPEG (XPComment) - kept so a later save
       // can tell whether the file still matches the comment.
       exifComment: result.exifComment ?? normalizeComment(result.comment),
+      weather: result.weather ?? null,
       schemaVersion: 2,
       source: result.source,
       watermarked: Boolean(result.watermarked),
@@ -1440,12 +1459,14 @@ async function updateSavedComment() {
           blob: synced.blob,
           size: synced.blob.size,
           exifComment: synced.comment,
+          weather: result.weather ?? null,
         })
       : await storage.updatePhoto(result.recordId, {
           comment,
           commentUpdatedAt: Date.now(),
           blob: blobToSave,
           size: sizeToSave,
+          weather: result.weather ?? null,
         });
 
     if (!updated) {
@@ -1496,6 +1517,24 @@ function openGalleryItem(record) {
       comment: record.comment ?? '',
       exifComment: record.exifComment ?? '',
       fix,
+      address: record.address ?? '',
+      capturedAt: new Date(record.createdAt),
+      source: record.source,
+      watermarked: record.watermarked,
+      qrBurned: record.qrBurned,
+      device: null,
+      weather: record.weather ?? null,
+      exif: {
+        applied: Boolean(record.exifApplied),
+        gpsWritten: Boolean(record.gpsWritten),
+        commentWritten: Boolean(record.comment),
+        reason: 'от галерията',
+      },
+      /** The file was written earlier - only a fresh capture verifies the tag. */
+      commentVerified: null,
+    },
+    { device: null, address: record.address },
+  );
       capturedAt: new Date(record.createdAt),
       source: record.source ?? 'gallery',
       watermarked: Boolean(record.watermarked),

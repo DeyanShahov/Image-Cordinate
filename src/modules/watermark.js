@@ -58,7 +58,8 @@ function wrapText(context, text, maxWidth, maxLines = 2) {
  * @param {Blob} blob JPEG/PNG source
  * @param {{ fix?: object|null, address?: string|null, capturedAt?: Date,
  *           maxEdge?: number, quality?: number, brand?: string,
- *           qrMatrix?: { count: number, rows: number[][] }|null }} options
+ *           qrMatrix?: { count: number, rows: number[][] }|null,
+ *           weather?: { temperature: number, humidity: number }|null }} options
  * @returns {Promise<{ blob: Blob, scaled: boolean, width: number, height: number }>}
  */
 export async function withWatermark(blob, options = {}) {
@@ -70,6 +71,7 @@ export async function withWatermark(blob, options = {}) {
     quality = 0.92,
     brand = 'Image Coordinate',
     qrMatrix = null,
+    weather = null,
   } = options;
 
   const image = await decodeImage(blob);
@@ -105,6 +107,13 @@ export async function withWatermark(blob, options = {}) {
   const addressLines = address ? wrapText(context, address, maxTextWidth, 2) : [];
   for (const line of addressLines) {
     lines.push({ text: line, size: metaSize, weight: '400' });
+  }
+
+  // Weather line (temperature + humidity) – added after address, before the panel is drawn.
+  if (weather && Number.isFinite(weather.temperature) && Number.isFinite(weather.humidity)) {
+    const tempStr = `${Math.round(weather.temperature)}°C`;
+    const humStr = `${Math.round(weather.humidity)}%`;
+    lines.push({ text: `🌡️ ${tempStr} · 💧 ${humStr}`, size: metaSize, weight: '500' });
   }
 
   const panelHeight =

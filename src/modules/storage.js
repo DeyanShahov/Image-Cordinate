@@ -19,7 +19,7 @@ let photoStore = null;
 let geocodeStore = null;
 let inboxStore = null;
 
-function stores() {
+export function stores() {
   if (photoStore && geocodeStore && inboxStore) return { photoStore, geocodeStore, inboxStore };
   if (typeof indexedDB === 'undefined') return null;
   photoStore = createStore(DB_NAME, PHOTO_STORE);

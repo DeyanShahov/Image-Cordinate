@@ -6,13 +6,12 @@
  * app logic - it stores the file here and redirects. The app then picks it up on
  * startup and runs the normal "read the EXIF and offer navigation" flow.
  *
- * The module is imported by `src/sw.js` as well, so it must stay free of DOM access.
+ * It reuses the connection factory from `storage.js` so the app and the worker always
+ * open the database with the same version and the same store-repair upgrade.
  */
 
-import { openDB } from 'idb';
+import { getDb } from './storage.js';
 
-const DB_NAME = 'image-coordinate';
-const DB_VERSION = 4;
 /** A shared photo is only interesting right after the share happened. */
 const MAX_AGE_MS = 1000 * 60 * 10;
 const INBOX_KEY = 'shared-photo';
@@ -27,10 +26,11 @@ const INBOX_KEY = 'shared-photo';
 export async function putSharedPhoto(blob, meta = {}) {
   if (!blob) return false;
   try {
-    const db = await openDB(DB_NAME, DB_VERSION);
+    const db = await getDb();
     await db.put('inbox', { at: Date.now(), blob, ...meta }, INBOX_KEY);
     return true;
-  } catch {
+  } catch (error) {
+    console.warn('[inbox] putSharedPhoto failed:', error?.message ?? error);
     return false;
   }
 }
@@ -42,13 +42,14 @@ export async function putSharedPhoto(blob, meta = {}) {
  */
 export async function takeSharedPhoto() {
   try {
-    const db = await openDB(DB_NAME, DB_VERSION);
+    const db = await getDb();
     const entry = await db.get('inbox', INBOX_KEY);
     if (!entry?.blob) return null;
     await db.delete('inbox', INBOX_KEY);
     if (Date.now() - (entry.at ?? 0) > MAX_AGE_MS) return null;
     return entry;
-  } catch {
+  } catch (error) {
+    console.warn('[inbox] takeSharedPhoto failed:', error?.message ?? error);
     return null;
   }
 }

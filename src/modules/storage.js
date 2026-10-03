@@ -12,33 +12,40 @@ import { openDB } from 'idb';
 import { normalizeComment } from '../utils/comment.js';
 import { groupByWeekAndDay } from '../utils/date.js';
 
-const DB_NAME = 'image-coordinate';
+/** Shared with the service worker (inbox.js) so both open the same version. */
+export const DB_NAME = 'image-coordinate';
+/** Bumped whenever the store list changes - this is what triggers the repair below. */
+export const DB_VERSION = 5;
+
 const PHOTO_STORE = 'photos';
 const GEOCODE_STORE = 'geocode';
 const INBOX_STORE = 'inbox';
 const GEOCODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 /** Record shape version: 1 = photo + map, 2 = + comment. */
 const SCHEMA_VERSION = 2;
-/** IndexedDB version: 1 photos, 2 geocode, 3 inbox, 4 current. */
-const DB_VERSION = 4;
 
 let dbPromise = null;
 
 /**
  * Opens (or upgrades) the database. The connection is cached, but the cached promise is
  * dropped when the browser terminates it, so the next call re-opens cleanly.
+ *
+ * The upgrade callback is deliberately **idempotent and version independent**: it
+ * creates whatever store is missing. A database opened by an older release - or by a
+ * build that created it with no stores at all - heals itself on the next open instead
+ * of failing every transaction with `NotFoundError`.
  */
-function getDb() {
+export function getDb() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
-        if (oldVersion < 1 && !db.objectStoreNames.contains(PHOTO_STORE)) {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains(PHOTO_STORE)) {
           db.createObjectStore(PHOTO_STORE);
         }
-        if (oldVersion < 2 && !db.objectStoreNames.contains(GEOCODE_STORE)) {
+        if (!db.objectStoreNames.contains(GEOCODE_STORE)) {
           db.createObjectStore(GEOCODE_STORE);
         }
-        if (oldVersion < 3 && !db.objectStoreNames.contains(INBOX_STORE)) {
+        if (!db.objectStoreNames.contains(INBOX_STORE)) {
           db.createObjectStore(INBOX_STORE);
         }
       },
@@ -174,12 +181,18 @@ export async function updatePhotoComment(id, comment) {
 }
 
 export async function listPhotos() {
-  const db = await getDb();
-  const items = await db.getAll(PHOTO_STORE);
-  return items
-    .map((value) => normalizeRecord(value))
-    .filter(Boolean)
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  try {
+    const db = await getDb();
+    const items = await db.getAll(PHOTO_STORE);
+    return items
+      .map((value) => normalizeRecord(value))
+      .filter(Boolean)
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  } catch (error) {
+    // A read-only path must never break the UI: an empty gallery is the safe answer.
+    console.warn('[storage] listPhotos failed:', error?.message ?? error);
+    return [];
+  }
 }
 
 /** Returns photos grouped by week and day for gallery UI */
@@ -189,8 +202,13 @@ export async function listPhotosGrouped() {
 }
 
 export async function getPhoto(id) {
-  const db = await getDb();
-  return normalizeRecord(await db.get(PHOTO_STORE, id));
+  try {
+    const db = await getDb();
+    return normalizeRecord(await db.get(PHOTO_STORE, id));
+  } catch (error) {
+    console.warn('[storage] getPhoto failed:', error?.message ?? error);
+    return null;
+  }
 }
 
 export async function deletePhoto(id) {
@@ -204,13 +222,17 @@ export async function clearPhotos() {
 }
 
 export async function countPhotos() {
-  const db = await getDb();
-  return db.count(PHOTO_STORE);
+  try {
+    const db = await getDb();
+    return await db.count(PHOTO_STORE);
+  } catch {
+    return 0;
+  }
 }
 
 export async function getCachedGeocode(key) {
-  const db = await getDb();
   try {
+    const db = await getDb();
     const entry = await db.get(GEOCODE_STORE, key);
     if (!entry) return null;
     if (Date.now() - (entry.at ?? 0) > GEOCODE_TTL_MS) return null;
@@ -222,8 +244,9 @@ export async function getCachedGeocode(key) {
 
 export async function setCachedGeocode(key, value) {
   if (!value) return;
-  const db = await getDb();
   try {
+    // Fire-and-forget from the geocoder, so the whole body stays inside the try.
+    const db = await getDb();
     await db.put(GEOCODE_STORE, { at: Date.now(), value }, key);
   } catch {
     /* cache is best effort */

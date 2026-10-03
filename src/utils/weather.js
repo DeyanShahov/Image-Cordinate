@@ -77,7 +77,7 @@ export function formatHumidity(percent) {
 
 /** @returns {boolean} true when both values are present */
 export function hasWeather(data) {
-  return data && Number.isFinite(data.temperature) && Number.isFinite(data.humidity);
+  return Boolean(data && Number.isFinite(data.temperature) && Number.isFinite(data.humidity));
 }
 
 /**

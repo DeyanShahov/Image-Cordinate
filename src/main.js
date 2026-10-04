@@ -664,6 +664,13 @@ function initDrawingForReview(result) {
   ui.initDrawToggle(refs);
   setupDrawToggleButton();
 
+  // Reset button to initial "Рисувай" state (drawing is disabled by default)
+  if (refs.btnToggleDraw) {
+    refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
+    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
+    if (textSpan) textSpan.textContent = 'Рисувай';
+  }
+
   // Setup toolbar event handlers (but keep toolbar hidden initially)
   setupDrawingEventHandlers();
 

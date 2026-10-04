@@ -73,7 +73,7 @@
           </label>
 
           <label class="toggle">
-            <input id="chk-qr" type="checkbox" />
+            <input id="chk-qr" type="checkbox" checked />
             <span>QR код с координати във водния знак</span>
           </label>
 
@@ -145,6 +145,12 @@
             <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
             <div id="map-preview" class="review__map-preview-container" hidden></div>
             <div id="qr-panel" class="qr" hidden></div>
+            
+            <button id="btn-toggle-draw" class="btn draw-toggle" aria-pressed="false" aria-controls="draw-toolbar" hidden>
+              <span class="draw-toggle__icon" aria-hidden="true">✏️</span>
+              <span class="draw-toggle__text">Рисувай</span>
+            </button>
+            
             <div id="draw-toolbar" class="draw-toolbar" hidden>
               <div class="draw-tools">
                 <button class="draw-color" data-color="#e53935" aria-label="Червен" style="background:#e53935" title="Червен"></button>

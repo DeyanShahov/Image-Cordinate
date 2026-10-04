@@ -617,10 +617,11 @@ function buildMetaRows(result, device, address) {
 }
 
 /**
- * Initializes the drawing overlay for the review photo.
+ * Initializes the drawing overlay for the review photo (prepares canvas/controller but keeps drawing disabled).
  * @param {object} result - The photo result object with blob, fix, etc.
  */
 let drawingController = null;
+let drawingInitialized = false;
 
 function initDrawingForReview(result) {
   // Clean up previous drawing controller if any
@@ -628,6 +629,7 @@ function initDrawingForReview(result) {
     drawingController._cleanup();
   }
   drawingController = null;
+  drawingInitialized = false;
 
   // Get the displayed image dimensions
   const img = refs.reviewPhoto;
@@ -655,14 +657,56 @@ function initDrawingForReview(result) {
   // Resize canvas overlay to match displayed image
   ui.resizeDrawCanvas(refs, displayWidth, displayHeight);
 
+  // Keep drawing disabled by default - pointerEvents = 'none'
+  refs.drawCanvas.style.pointerEvents = 'none';
+
+  // Initialize the drawing toggle button
+  ui.initDrawToggle(refs);
+
+  // Setup toolbar event handlers (but keep toolbar hidden initially)
+  setupDrawingEventHandlers();
+
+  // Store cleanup handler on controller for later removal
+  drawingController._cleanup = () => {
+    cleanupCanvasDrawingHandlers();
+    refs.drawCanvas.style.pointerEvents = 'none';
+    ui.hideDrawToolbar(refs);
+  };
+
+  drawingInitialized = true;
+}
+
+/** Enable drawing mode - called when user clicks "Рисувай" */
+function enableDrawingMode() {
+  if (!drawingController || !drawingInitialized) return;
+  
   // Enable pointer events on canvas for drawing
   refs.drawCanvas.style.pointerEvents = 'auto';
-
+  
+  // Setup canvas drawing event handlers
+  setupCanvasDrawingHandlers();
+  
   // Show toolbar
   ui.showDrawToolbar(refs, drawingController);
+  
+  // Update save button label
+  updateSaveButtonLabel();
+}
 
-  // --- Event handlers ---
+/** Disable drawing mode - called when user clicks "Готово" */
+function disableDrawingMode() {
+  if (!drawingController) return;
+  
+  refs.drawCanvas.style.pointerEvents = 'none';
+  ui.hideDrawToolbar(refs);
+  updateSaveButtonLabel();
+  
+  // Remove canvas drawing event handlers
+  cleanupCanvasDrawingHandlers();
+}
 
+/** Setup drawing toolbar event handlers */
+function setupDrawingEventHandlers() {
   // Color selection
   refs.drawColorBtns?.forEach(btn => {
     btn.onclick = () => {
@@ -693,25 +737,32 @@ function initDrawingForReview(result) {
     };
   }
 
-  // Done - hide toolbar, disable drawing
+  // Done button in toolbar - disable drawing mode
   if (refs.btnDoneDraw) {
     refs.btnDoneDraw.onclick = () => {
-      refs.drawCanvas.style.pointerEvents = 'none';
-      ui.hideDrawToolbar(refs);
-      updateSaveButtonLabel();
+      disableDrawingMode();
+      // Also toggle the main drawing toggle button
+      ui.toggleDrawMode(refs);
     };
   }
+}
 
-  // Drawing events on canvas
-  let isDrawing = false;
+/** Setup canvas drawing event handlers (pointer events, keyboard) */
+let isDrawing = false;
+let keydownHandler = null;
 
-  const getClientCoords = (e) => {
-    const rect = refs.drawCanvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { clientX, clientY, rect };
-  };
+function getClientCoords(e) {
+  const rect = refs.drawCanvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { clientX, clientY, rect };
+}
 
+function setupCanvasDrawingHandlers() {
+  if (!drawingController) return;
+  
+  isDrawing = false;
+  
   refs.drawCanvas.onpointerdown = (e) => {
     if (e.button !== 0) return; // only left click / touch
     isDrawing = true;
@@ -719,84 +770,86 @@ function initDrawingForReview(result) {
     drawingController.startStroke(clientX, clientY);
     refs.drawCanvas.setPointerCapture(e.pointerId);
   };
-
+  
   refs.drawCanvas.onpointermove = (e) => {
     if (!isDrawing) return;
     const { clientX, clientY } = getClientCoords(e);
     drawingController.continueStroke(clientX, clientY);
   };
-
+  
   refs.drawCanvas.onpointerup = (e) => {
     if (!isDrawing) return;
     isDrawing = false;
     drawingController.endStroke();
     refs.drawCanvas.releasePointerCapture(e.pointerId);
   };
-
+  
   refs.drawCanvas.onpointercancel = (e) => {
     if (!isDrawing) return;
     isDrawing = false;
     drawingController.cancelStroke();
     refs.drawCanvas.releasePointerCapture(e.pointerId);
   };
-
+  
   refs.drawCanvas.onpointerleave = (e) => {
     if (!isDrawing) return;
     isDrawing = false;
     drawingController.endStroke();
   };
-
+  
   // Keyboard shortcut: Ctrl+Z for undo
-  const keydownHandler = (e) => {
+  keydownHandler = (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       drawingController.undo();
     }
   };
   document.addEventListener('keydown', keydownHandler);
-
+  
   // Helper to update save button label based on drawing state
   const updateSaveButtonLabel = () => {
     const hasDrawing = drawingController && drawingController.hasStrokes();
     const saved = Boolean(getState().result?.recordId);
     ui.renderSaveLabel(refs, { saved, hasDrawingChanges: hasDrawing });
   };
-
+  
   // Update button label after stroke changes
   const originalEndStroke = drawingController.endStroke.bind(drawingController);
   drawingController.endStroke = () => {
     originalEndStroke();
     updateSaveButtonLabel();
   };
-
+  
   const originalUndo = drawingController.undo.bind(drawingController);
   drawingController.undo = () => {
     const result = originalUndo();
     updateSaveButtonLabel();
     return result;
   };
-
+  
   const originalClear = drawingController.clear.bind(drawingController);
   drawingController.clear = () => {
     const result = originalClear();
     updateSaveButtonLabel();
     return result;
   };
-
+  
   // Initial label update
   updateSaveButtonLabel();
+}
 
-  // Store cleanup handler on controller for later removal
-  drawingController._cleanup = () => {
+/** Cleanup canvas drawing event handlers */
+function cleanupCanvasDrawingHandlers() {
+  if (keydownHandler) {
     document.removeEventListener('keydown', keydownHandler);
-    refs.drawCanvas.onpointerdown = null;
-    refs.drawCanvas.onpointermove = null;
-    refs.drawCanvas.onpointerup = null;
-    refs.drawCanvas.onpointercancel = null;
-    refs.drawCanvas.onpointerleave = null;
-    refs.drawCanvas.style.pointerEvents = 'none';
-    ui.hideDrawToolbar(refs);
-  };
+    keydownHandler = null;
+  }
+  refs.drawCanvas.onpointerdown = null;
+  refs.drawCanvas.onpointermove = null;
+  refs.drawCanvas.onpointerup = null;
+  refs.drawCanvas.onpointercancel = null;
+  refs.drawCanvas.onpointerleave = null;
+  isDrawing = false;
 }
 
 function showResult(result, { device = null, address = getState().address } = {}) {

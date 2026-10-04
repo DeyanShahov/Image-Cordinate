@@ -754,6 +754,37 @@
   }
 }
 
+/* ------------- Drawing toggle & toolbar ------------- */
+
+.draw-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.draw-toggle__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.draw-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: transparent;
+}
+
+@media (min-width: 720px) {
+  .draw-toggle {
+    width: auto;
+    min-width: 200px;
+  }
+}
+
 /* ------------- QR code ------------- */
 
 .qr {

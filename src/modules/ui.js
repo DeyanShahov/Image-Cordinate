@@ -116,7 +116,8 @@ export function createRefs(root = document) {
     btnClearDraw: pick('btn-clear-draw'),
     drawWidthSelect: pick('draw-width'),
     drawColorBtns: root.querySelectorAll('.draw-color'),
-    btnToggleDraw: pick('btn-toggle-draw'),
+    btnStartDraw: pick('btn-start-draw'),
+    btnStopDraw: pick('btn-stop-draw'),
   };
 }
 
@@ -634,23 +635,46 @@ export function resizeDrawCanvas(refs, displayWidth, displayHeight) {
   // The drawing controller will handle internal canvas sizing via setDisplaySize
 }
 
-/** Initialize the drawing toggle button - makes it visible */
-export function initDrawToggle(refs) {
-  if (!refs.btnToggleDraw || !refs.drawToolbar) return;
+/** Initialize the drawing buttons - shows Start button, hides Stop button */
+export function initDrawButtons(refs) {
+  if (!refs.btnStartDraw || !refs.btnStopDraw || !refs.drawToolbar || !refs.drawCanvas) return;
   
-  refs.btnToggleDraw.hidden = false;
-  // Note: onclick handler is set by main.js via setupDrawToggleButton()
-}
-
-/** Reset drawing mode to disabled */
-export function resetDrawMode(refs) {
-  if (!refs.btnToggleDraw || !refs.drawToolbar || !refs.drawCanvas) return;
-  
-  refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
-  refs.btnToggleDraw.hidden = true;
+  refs.btnStartDraw.hidden = false;
+  refs.btnStopDraw.hidden = true;
   refs.drawToolbar.hidden = true;
   refs.drawCanvas.style.pointerEvents = 'none';
+}
+
+/** Reset drawing mode to disabled - shows Start button, hides Stop button */
+export function resetDrawButtons(refs) {
+  if (!refs.btnStartDraw || !refs.btnStopDraw || !refs.drawToolbar || !refs.drawCanvas) return;
   
-  const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-  if (textSpan) textSpan.textContent = 'Рисувай';
+  refs.btnStartDraw.hidden = false;
+  refs.btnStopDraw.hidden = true;
+  refs.drawToolbar.hidden = true;
+  refs.drawCanvas.style.pointerEvents = 'none';
+}
+
+/** Show the Start Drawing button */
+export function showStartDrawButton(refs) {
+  if (!refs.btnStartDraw) return;
+  refs.btnStartDraw.hidden = false;
+}
+
+/** Hide the Start Drawing button */
+export function hideStartDrawButton(refs) {
+  if (!refs.btnStartDraw) return;
+  refs.btnStartDraw.hidden = true;
+}
+
+/** Show the Stop Drawing button */
+export function showStopDrawButton(refs) {
+  if (!refs.btnStopDraw) return;
+  refs.btnStopDraw.hidden = false;
+}
+
+/** Hide the Stop Drawing button */
+export function hideStopDrawButton(refs) {
+  if (!refs.btnStopDraw) return;
+  refs.btnStopDraw.hidden = true;
 }

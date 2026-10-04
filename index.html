@@ -146,10 +146,16 @@
             <div id="map-preview" class="review__map-preview-container" hidden></div>
             <div id="qr-panel" class="qr" hidden></div>
             
-            <button id="btn-toggle-draw" class="btn draw-toggle" aria-pressed="false" aria-controls="draw-toolbar" hidden>
-              <span class="draw-toggle__icon" aria-hidden="true">✏️</span>
-              <span class="draw-toggle__text">Рисувай</span>
-            </button>
+            <div class="draw-toggle-container">
+                <button id="btn-start-draw" class="draw-toggle draw-toggle--start" aria-label="Започни рисуване" hidden>
+                  <span class="draw-toggle__icon" aria-hidden="true">✏️</span>
+                  <span class="draw-toggle__text">Рисувай</span>
+                </button>
+                <button id="btn-stop-draw" class="draw-toggle draw-toggle--stop" aria-label="Спри рисуване" hidden>
+                  <span class="draw-toggle__icon" aria-hidden="true">✋</span>
+                  <span class="draw-toggle__text">Готово</span>
+                </button>
+              </div>
             
             <div id="draw-toolbar" class="draw-toolbar" hidden>
               <div class="draw-tools">

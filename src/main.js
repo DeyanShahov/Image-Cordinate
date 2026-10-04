@@ -660,24 +660,9 @@ function initDrawingForReview(result) {
   // Keep drawing disabled by default - pointerEvents = 'none'
   refs.drawCanvas.style.pointerEvents = 'none';
 
-  // Initialize the drawing toggle button
-  ui.initDrawToggle(refs);
-  setupDrawToggleButton();
-
-  // Reset button to initial "Рисувай" state (drawing is disabled by default)
-  if (refs.btnToggleDraw) {
-    refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
-    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) {
-      textSpan.textContent = 'Рисувай';
-      // Store reference to text span for future updates
-      refs.drawToggleText = textSpan;
-    } else {
-      console.warn('[initDrawingForReview] .draw-toggle__text span not found!');
-    }
-  } else {
-    console.warn('[initDrawingForReview] btnToggleDraw not found!');
-  }
+  // Initialize the drawing buttons (show Start, hide Stop)
+  ui.initDrawButtons(refs);
+  setupDrawButtons();
 
   // Setup toolbar event handlers (but keep toolbar hidden initially)
   setupDrawingEventHandlers();
@@ -705,21 +690,9 @@ function enableDrawingMode() {
   // Show toolbar
   ui.showDrawToolbar(refs, drawingController);
   
-  // Update toggle button UI
-  if (refs.btnToggleDraw) {
-    refs.btnToggleDraw.setAttribute('aria-pressed', 'true');
-    // Use stored reference to text span, fallback to querySelector
-    const textSpan = refs.drawToggleText || refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) {
-      textSpan.textContent = 'Готово';
-      // Store reference for future use
-      refs.drawToggleText = textSpan;
-    } else {
-      console.warn('[enableDrawingMode] .draw-toggle__text span not found!');
-    }
-  } else {
-    console.warn('[enableDrawingMode] btnToggleDraw not found!');
-  }
+  // Update buttons UI - hide Start, show Stop
+  ui.hideStartDrawButton(refs);
+  ui.showStopDrawButton(refs);
   
   // Update save button label
   updateSaveButtonLabel();
@@ -733,21 +706,9 @@ function disableDrawingMode() {
   ui.hideDrawToolbar(refs);
   updateSaveButtonLabel();
   
-  // Update toggle button UI
-  if (refs.btnToggleDraw) {
-    refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
-    // Use stored reference to text span, fallback to querySelector
-    const textSpan = refs.drawToggleText || refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) {
-      textSpan.textContent = 'Рисувай';
-      // Store reference for future use
-      refs.drawToggleText = textSpan;
-    } else {
-      console.warn('[disableDrawingMode] .draw-toggle__text span not found!');
-    }
-  } else {
-    console.warn('[disableDrawingMode] btnToggleDraw not found!');
-  }
+  // Update buttons UI - show Start, hide Stop
+  ui.showStartDrawButton(refs);
+  ui.hideStopDrawButton(refs);
   
   // Remove canvas drawing event handlers
   cleanupCanvasDrawingHandlers();
@@ -786,19 +747,23 @@ function setupDrawingEventHandlers() {
   }
 }
 
-/** Toggle drawing mode via the main toggle button */
-function setupDrawToggleButton() {
-  if (!refs.btnToggleDraw) return;
-  
-  refs.btnToggleDraw.onclick = () => {
-    const isEnabled = refs.btnToggleDraw.getAttribute('aria-pressed') === 'true';
-    console.log('[setupDrawToggleButton] Clicked, isEnabled:', isEnabled, 'btnToggleDraw:', refs.btnToggleDraw);
-    if (isEnabled) {
-      disableDrawingMode();
-    } else {
+/** Setup drawing buttons - separate Start and Stop buttons */
+function setupDrawButtons() {
+  // Start Drawing button
+  if (refs.btnStartDraw) {
+    refs.btnStartDraw.onclick = () => {
+      console.log('[setupDrawButtons] Start Draw clicked');
       enableDrawingMode();
-    }
-  };
+    };
+  }
+  
+  // Stop Drawing button
+  if (refs.btnStopDraw) {
+    refs.btnStopDraw.onclick = () => {
+      console.log('[setupDrawButtons] Stop Draw clicked');
+      disableDrawingMode();
+    };
+  }
 }
 
 /** Setup canvas drawing event handlers (pointer events, keyboard) */
@@ -982,6 +947,7 @@ function clearResult() {
     drawingController._cleanup();
     drawingController = null;
   }
+  drawingInitialized = false;
 
   if (reviewUrl) {
     URL.revokeObjectURL(reviewUrl);
@@ -996,6 +962,8 @@ function clearResult() {
   ui.setReviewNote(refs, null);
   ui.renderMapPreview(refs, null, null, null);
   ui.renderSaveLabel(refs, { saved: false, hasDrawingChanges: false });
+  // Reset drawing buttons to initial state (show Start, hide Stop)
+  ui.resetDrawButtons(refs);
   // Reset metadata panel to collapsed state and hide button
   ui.resetMetaPanel(refs);
   setState({ result: null, phase: PHASES.LIVE });

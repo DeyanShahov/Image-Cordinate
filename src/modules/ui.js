@@ -91,6 +91,12 @@ export function createRefs(root = document) {
     reviewNote: pick('review-note'),
     btnToggleMeta: pick('btn-toggle-meta'),
     metaPanel: pick('meta-panel'),
+    btnToggleService: pick('btn-toggle-service'),
+    servicePanel: pick('service-panel'),
+    serviceCompany: pick('service-company'),
+    serviceProject: pick('service-project'),
+    serviceTechnician: pick('service-technician'),
+    serviceTechRadios: root.querySelectorAll('input[name="service-tech-quick"]'),
     btnDownload: pick('btn-download'),
     btnDownloadMap: pick('btn-download-map'),
     btnNavigate: pick('btn-navigate'),
@@ -288,6 +294,164 @@ export function resetMetaPanel(refs) {
   if (iconSpan) iconSpan.textContent = '▼';
 }
 
+/* ---------------------------------------------------------------- service info panel */
+
+/** Combine selected technician names into a single string */
+function combineTechnicians(checkboxes) {
+  const selected = Array.from(checkboxes)
+    .filter(cb => cb.checked)
+    .map(cb => cb.value);
+  return selected.join(', ');
+}
+
+/** Initialize the service info toggle button and panel */
+export function initServiceToggle(refs) {
+  if (!refs.btnToggleService || !refs.servicePanel) return;
+
+  refs.btnToggleService.hidden = false;
+
+  refs.btnToggleService.onclick = () => {
+    toggleServicePanel(refs);
+  };
+
+  // Set up checkbox listeners for quick technician selection
+  if (refs.serviceTechRadios && refs.serviceTechnician) {
+    refs.serviceTechRadios.forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const checkboxes = refs.serviceTechRadios;
+        // Combine all selected names
+        refs.serviceTechnician.value = combineTechnicians(checkboxes);
+        // Update visual state for all checkboxes
+        checkboxes.forEach(cb => {
+          const label = cb.closest('.service-checkbox');
+          if (label) {
+            label.classList.toggle('is-checked', cb.checked);
+          }
+        });
+      });
+    });
+  }
+
+  // Also update when technician field is manually edited - uncheck all checkboxes
+  if (refs.serviceTechnician) {
+    refs.serviceTechnician.addEventListener('input', () => {
+      // If user manually types, uncheck all quick-select checkboxes
+      refs.serviceTechRadios.forEach(cb => {
+        cb.checked = false;
+        const label = cb.closest('.service-checkbox');
+        if (label) {
+          label.classList.remove('is-checked');
+        }
+      });
+    });
+  }
+
+  // Set up input listeners to persist changes to localStorage
+  const saveServiceInfo = () => {
+    const serviceInfo = collectServiceInfo(refs);
+    localStorage.setItem('serviceInfo', JSON.stringify(serviceInfo));
+  };
+
+  if (refs.serviceCompany) {
+    refs.serviceCompany.addEventListener('blur', saveServiceInfo);
+  }
+  if (refs.serviceProject) {
+    refs.serviceProject.addEventListener('blur', saveServiceInfo);
+  }
+  if (refs.serviceTechnician) {
+    refs.serviceTechnician.addEventListener('blur', saveServiceInfo);
+  }
+}
+
+/** Toggle the service info panel visibility */
+export function toggleServicePanel(refs) {
+  if (!refs.btnToggleService || !refs.servicePanel) return;
+
+  const isExpanded = !refs.servicePanel.hidden;
+  const newExpanded = !isExpanded;
+
+  refs.servicePanel.hidden = !newExpanded;
+  refs.btnToggleService.setAttribute('aria-expanded', String(newExpanded));
+
+  const textSpan = refs.btnToggleService.querySelector('.service-toggle__text');
+  const iconSpan = refs.btnToggleService.querySelector('.service-toggle__icon');
+
+  if (textSpan) {
+    textSpan.textContent = newExpanded ? 'Скрий служебната информация' : 'Служебна информация';
+  }
+  if (iconSpan) {
+    iconSpan.textContent = newExpanded ? '▲' : '▼';
+  }
+  
+  // When opening the panel, focus the first field
+  if (newExpanded && refs.serviceCompany) {
+    refs.serviceCompany.focus();
+  }
+}
+
+/** Reset service panel to collapsed state */
+export function resetServicePanel(refs) {
+  if (!refs.btnToggleService || !refs.servicePanel) return;
+
+  refs.servicePanel.hidden = true;
+  refs.btnToggleService.setAttribute('aria-expanded', 'false');
+  refs.btnToggleService.hidden = true;
+
+  const textSpan = refs.btnToggleService.querySelector('.service-toggle__text');
+  const iconSpan = refs.btnToggleService.querySelector('.service-toggle__icon');
+
+  if (textSpan) textSpan.textContent = 'Служебна информация';
+  if (iconSpan) iconSpan.textContent = '▼';
+  
+  // Reset form fields to defaults
+  if (refs.serviceCompany) refs.serviceCompany.value = 'InfraLink';
+  if (refs.serviceProject) refs.serviceProject.value = 'м10 до м80';
+  if (refs.serviceTechnician) refs.serviceTechnician.value = 'Техник 1';
+  if (refs.serviceTechRadios) {
+    refs.serviceTechRadios.forEach(cb => {
+      cb.checked = false;
+      const label = cb.closest('.service-checkbox');
+      if (label) {
+        label.classList.remove('is-checked');
+      }
+    });
+  }
+}
+
+/** Render service info from state into the form fields */
+export function renderServiceInfo(refs, serviceInfo) {
+  if (!serviceInfo) return;
+  if (refs.serviceCompany) refs.serviceCompany.value = serviceInfo.company ?? 'InfraLink';
+  if (refs.serviceProject) refs.serviceProject.value = serviceInfo.project ?? 'м10 до м80';
+  if (refs.serviceTechnician) refs.serviceTechnician.value = serviceInfo.technician ?? 'Техник 1';
+  
+  // Update checkbox selection based on technician field
+  // Parse the technician string (comma-separated) and check matching checkboxes
+  if (refs.serviceTechRadios && serviceInfo.technician) {
+    const technicianNames = serviceInfo.technician
+      .split(',')
+      .map(name => name.trim())
+      .filter(name => name.length > 0);
+    
+    refs.serviceTechRadios.forEach(checkbox => {
+      const isChecked = technicianNames.includes(checkbox.value);
+      checkbox.checked = isChecked;
+      const label = checkbox.closest('.service-checkbox');
+      if (label) {
+        label.classList.toggle('is-checked', isChecked);
+      }
+    });
+  }
+}
+
+/** Collect service info from form fields into an object */
+export function collectServiceInfo(refs) {
+  return {
+    company: refs.serviceCompany?.value?.trim() ?? 'InfraLink',
+    project: refs.serviceProject?.value?.trim() ?? 'м10 до м80',
+    technician: refs.serviceTechnician?.value?.trim() ?? 'Техник 1',
+  };
+}
 export function renderReviewPhoto(refs, url) {
   if (refs.reviewPhoto) refs.reviewPhoto.src = url;
 }

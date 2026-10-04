@@ -88,6 +88,7 @@ function normalizeRecord(value) {
     comment: typeof value.comment === 'string' ? value.comment : '',
     commentUpdatedAt: Number.isFinite(value.commentUpdatedAt) ? value.commentUpdatedAt : null,
     schemaVersion: Number.isFinite(value.schemaVersion) ? value.schemaVersion : 1,
+    serviceInfo: value.serviceInfo && typeof value.serviceInfo === 'object' ? value.serviceInfo : null,
   };
 }
 

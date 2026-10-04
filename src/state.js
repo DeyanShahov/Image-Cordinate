@@ -51,6 +51,12 @@ const initialState = {
   cameras: [],
   activeCameraId: null,
   busy: false,
+  /** Service information (company, project, technician) - persisted to localStorage. */
+  serviceInfo: {
+    company: 'InfraLink',
+    project: 'м10 до м80',
+    technician: 'Техник 1',
+  },
 };
 
 let state = { ...initialState };

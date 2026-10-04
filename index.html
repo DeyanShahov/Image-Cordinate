@@ -134,6 +134,58 @@
               <p id="review-comment-hint" class="comment__hint hint"></p>
             </div>
             
+            <button id="btn-toggle-service" class="btn btn--secondary service-toggle" aria-expanded="false" aria-controls="service-panel" hidden>
+              <span class="service-toggle__icon" aria-hidden="true">▼</span>
+              <span class="service-toggle__text">Служебна информация</span>
+            </button>
+
+            <div id="service-panel" class="service-panel" hidden>
+              <form id="service-form" class="service-form">
+                <div class="service-field">
+                  <label for="service-company" class="service-label">Фирма</label>
+                  <input type="text" id="service-company" class="service-input" value="InfraLink" autocomplete="off" />
+                </div>
+                <div class="service-field">
+                  <label for="service-project" class="service-label">Проект</label>
+                  <input type="text" id="service-project" class="service-input" value="м10 до м80" autocomplete="off" />
+                </div>
+                <div class="service-field">
+                  <label for="service-technician" class="service-label">Техник</label>
+                  <input type="text" id="service-technician" class="service-input" value="Техник 1" autocomplete="off" />
+                </div>
+                <fieldset class="service-field service-technicians">
+                  <legend class="service-label">Бърз избор на техници</legend>
+                  <div class="service-checkbox-group">
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Анатолий" />
+                      <span class="service-checkbox__text">Анатолий</span>
+                    </label>
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Алекс" />
+                      <span class="service-checkbox__text">Алекс</span>
+                    </label>
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Тончо" />
+                      <span class="service-checkbox__text">Тончо</span>
+                    </label>
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Стоян" />
+                      <span class="service-checkbox__text">Стоян</span>
+                    </label>
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Тодор" />
+                      <span class="service-checkbox__text">Тодор</span>
+                    </label>
+                    <label class="service-checkbox">
+                      <input type="checkbox" name="service-tech-quick" value="Деян" />
+                      <span class="service-checkbox__text">Деян</span>
+                    </label>
+                  </div>
+                  <p class="service-hint">Изберете един или повече техници. Имената ще се комбинират в полето „Техник“.</p>
+                </fieldset>
+              </form>
+            </div>
+
             <button id="btn-toggle-meta" class="btn btn--primary meta-toggle" aria-expanded="false" aria-controls="meta-panel" hidden>
               <span class="meta-toggle__icon" aria-hidden="true">▼</span>
               <span class="meta-toggle__text">Покажи информацията</span>

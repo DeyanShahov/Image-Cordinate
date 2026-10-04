@@ -374,6 +374,8 @@ async function importPhoto(file) {
         weather,
         size: file.size,
         filename: makePhotoFilename(capturedAt, fix.latitude, fix.longitude, extension),
+        // Service info
+        serviceInfo: getState().serviceInfo,
       },
       { device, address },
     );
@@ -545,6 +547,8 @@ async function processPhoto({ blob, fix, capturedAt, source, pixelSize, device =
     commentVerified,
     size: exifResult.blob.size,
     filename: makePhotoFilename(capturedAt, fix?.latitude, fix?.longitude),
+    // Service info (company, project, technician)
+    serviceInfo: state.serviceInfo,
   };
 }
 
@@ -886,6 +890,12 @@ function showResult(result, { device = null, address = getState().address } = {}
   // Initialize metadata toggle (show button, start collapsed)
   ui.initMetaToggle(refs);
 
+  // Initialize service info toggle (show button, start collapsed)
+  ui.initServiceToggle(refs);
+
+  // Initialize and render service info
+  ui.renderServiceInfo(refs, getState().serviceInfo);
+
   // Navigation actions: only meaningful when the photo has a fix at all.
   const hasFix = Boolean(result.fix && Number.isFinite(result.fix.latitude));
   ui.updateNavigationButtons(refs, { hasFix });
@@ -966,6 +976,8 @@ function clearResult() {
   ui.resetDrawButtons(refs);
   // Reset metadata panel to collapsed state and hide button
   ui.resetMetaPanel(refs);
+  // Reset service panel to collapsed state and hide button
+  ui.resetServicePanel(refs);
   setState({ result: null, phase: PHASES.LIVE });
 }
 
@@ -1389,6 +1401,13 @@ async function saveToGallery() {
       }
     }
 
+    // Collect current service info from the form
+    const serviceInfo = ui.collectServiceInfo(refs);
+    // Save service info to localStorage for persistence
+    saveServiceInfo(serviceInfo);
+    // Update state with current service info
+    setState({ serviceInfo });
+
     const photoRecord = {
       id: globalThis.crypto?.randomUUID?.() ?? `photo-${Date.now()}`,
       createdAt: result.capturedAt.getTime(),
@@ -1414,6 +1433,8 @@ async function saveToGallery() {
       size: result.size,
       blob: result.blob,
       thumb,
+      // Service info fields
+      serviceInfo: { ...serviceInfo },
       // Map fields (null when there is no fix / the capture failed)
       mapBlob: mapFields?.mapBlob ?? null,
       mapThumb: mapFields?.mapThumb ?? null,
@@ -1598,6 +1619,9 @@ function openGalleryItem(record) {
       }
     : null;
 
+  // Include service info from the stored record
+  const serviceInfo = record.serviceInfo ?? null;
+
   showResult(
     {
       blob: record.blob,
@@ -1645,6 +1669,8 @@ function openGalleryItem(record) {
       mapFilename: record.mapFilename ?? null,
       mapSize: record.mapSize ?? null,
       hasMap: Boolean(record.hasMap),
+      // Service info
+      serviceInfo,
     },
     { address: record.address ?? null },
   );
@@ -1824,6 +1850,28 @@ async function registerServiceWorker() {
   }
 }
 
+/** Load service info from localStorage */
+function loadServiceInfo() {
+  try {
+    const stored = localStorage.getItem('serviceInfo');
+    if (stored) {
+      const serviceInfo = JSON.parse(stored);
+      setState({ serviceInfo: { ...getState().serviceInfo, ...serviceInfo } });
+    }
+  } catch {
+    // Ignore errors, use defaults
+  }
+}
+
+/** Save service info to localStorage */
+function saveServiceInfo(serviceInfo) {
+  try {
+    localStorage.setItem('serviceInfo', JSON.stringify(serviceInfo));
+  } catch {
+    // Ignore errors
+  }
+}
+
 function init() {
   guardEnvironment();
   wireEvents();
@@ -1833,6 +1881,9 @@ function init() {
   clearMemoryCache();
   // Also clear the persistent IndexedDB cache to force fresh geocoding requests
   storage.clearGeocodeCache();
+
+  // Load service info from localStorage
+  loadServiceInfo();
 
   if (refs.chkWatermark) {
     refs.chkWatermark.checked = true;
@@ -1848,6 +1899,9 @@ function init() {
       setState({ watermark: true });
     }
   }
+
+  // Initialize service info toggle
+  ui.initServiceToggle(refs);
 
   // Draft comment: show the initial "0/500" counter without touching the field on
   // every render (renderAll must never fight the phone keyboard for the caret).

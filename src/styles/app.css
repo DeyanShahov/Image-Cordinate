@@ -752,6 +752,149 @@
     width: auto;
     min-width: 280px;
   }
+  
+  .service-toggle {
+    width: auto;
+    min-width: 280px;
+  }
+}
+
+/* ------------- Service info panel ------------- */
+
+.service-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.service-toggle:hover {
+  filter: brightness(1.06);
+}
+
+.service-toggle:active {
+  transform: translateY(1px);
+}
+
+.service-toggle__icon {
+  transition: transform 0.2s ease;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.service-toggle[aria-expanded="true"] .service-toggle__icon {
+  transform: rotate(180deg);
+}
+
+.service-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  padding: var(--space-3);
+}
+
+.service-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.service-field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.service-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.service-input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.service-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.service-technicians {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
+}
+
+.service-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.service-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.service-checkbox:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+
+.service-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+
+.service-checkbox input[type="checkbox"]:checked + .service-checkbox__text {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.service-checkbox:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-2));
+}
+
+/* Fallback for browsers without :has() support */
+.service-checkbox.is-checked {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-2));
+}
+
+.service-hint {
+  margin: var(--space-2) 0 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 /* ------------- Drawing toggle & toolbar ------------- */

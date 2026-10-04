@@ -1817,6 +1817,16 @@ function init() {
     setState({ watermark: true });
   }
 
+  if (refs.chkQr) {
+    refs.chkQr.checked = true;
+    setState({ qr: true });
+    // QR requires watermark, so ensure watermark is also enabled
+    if (refs.chkWatermark && !refs.chkWatermark.checked) {
+      refs.chkWatermark.checked = true;
+      setState({ watermark: true });
+    }
+  }
+
   // Draft comment: show the initial "0/500" counter without touching the field on
   // every render (renderAll must never fight the phone keyboard for the caret).
   ui.renderStageComment(refs, getState().comment);

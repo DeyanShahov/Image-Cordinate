@@ -22,6 +22,17 @@
     </style>
   </head>
   <body>
+    <!-- Loading placeholder shown while Firebase resolves the auth state -->
+    <div id="boot-root" class="boot" role="status" aria-live="polite">
+      <span class="boot__spinner" aria-hidden="true"></span>
+      <span class="boot__text">Зареждане…</span>
+    </div>
+
+    <!-- Login screen (rendered by src/modules/login-ui.js) -->
+    <div id="login-root" hidden></div>
+
+    <!-- Main application -->
+    <div id="app-root" hidden>
     <a class="skip-link" href="#main">Към съдържанието</a>
 
     <header class="topbar">
@@ -29,9 +40,12 @@
         <span class="brand__dot" aria-hidden="true"></span>
         <span class="brand__name">Image Coordinate</span>
       </div>
-      <div class="chips">
-        <span id="status-camera" class="chip">камера: изключена</span>
-        <span id="status-gps" class="chip">GPS: няма fix</span>
+      <div class="topbar__right">
+        <div class="chips">
+          <span id="status-camera" class="chip">камера: изключена</span>
+          <span id="status-gps" class="chip">GPS: няма fix</span>
+        </div>
+        <div id="user-menu" class="user-menu-host" hidden></div>
       </div>
     </header>
 
@@ -263,11 +277,12 @@
       contributors, <a href="https://nominatim.org/">Nominatim</a>. Координатите се обработват само
       на устройството.
     </p>
+    </div><!-- /#app-root -->
 
     <input id="native-input" type="file" accept="image/*" capture="environment" hidden />
     <input id="import-input" type="file" accept="image/*" hidden />
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <noscript>Това приложение изисква JavaScript.</noscript>
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/boot.js"></script>
   </body>
 </html>

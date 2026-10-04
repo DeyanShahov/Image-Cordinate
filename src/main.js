@@ -6,10 +6,6 @@
  * EXIF GPS + optional watermark -> review card with map, download and share.
  */
 
-import './styles/tokens.css';
-import './styles/base.css';
-import './styles/app.css';
-
 import { CAMERA_STATES, GPS_STATES, PHASES, getState, setState, subscribe } from './state.js';
 import { show } from './utils/dom.js';
 import {
@@ -1921,4 +1917,15 @@ function init() {
   void registerServiceWorker();
 }
 
-init();
+let appInitialized = false;
+
+/**
+ * Initializes the main application (camera, GPS, gallery, service worker…).
+ * Called by the app shell after the user successfully authenticates.
+ * Safe to call multiple times - it only runs once.
+ */
+export function initializeApp() {
+  if (appInitialized) return;
+  appInitialized = true;
+  init();
+}

@@ -662,6 +662,7 @@ function initDrawingForReview(result) {
 
   // Initialize the drawing toggle button
   ui.initDrawToggle(refs);
+  setupDrawToggleButton();
 
   // Setup toolbar event handlers (but keep toolbar hidden initially)
   setupDrawingEventHandlers();
@@ -689,6 +690,13 @@ function enableDrawingMode() {
   // Show toolbar
   ui.showDrawToolbar(refs, drawingController);
   
+  // Update toggle button UI
+  if (refs.btnToggleDraw) {
+    refs.btnToggleDraw.setAttribute('aria-pressed', 'true');
+    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
+    if (textSpan) textSpan.textContent = 'Готово';
+  }
+  
   // Update save button label
   updateSaveButtonLabel();
 }
@@ -700,6 +708,13 @@ function disableDrawingMode() {
   refs.drawCanvas.style.pointerEvents = 'none';
   ui.hideDrawToolbar(refs);
   updateSaveButtonLabel();
+  
+  // Update toggle button UI
+  if (refs.btnToggleDraw) {
+    refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
+    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
+    if (textSpan) textSpan.textContent = 'Рисувай';
+  }
   
   // Remove canvas drawing event handlers
   cleanupCanvasDrawingHandlers();
@@ -736,15 +751,20 @@ function setupDrawingEventHandlers() {
       drawingController.clear();
     };
   }
+}
 
-  // Done button in toolbar - disable drawing mode
-  if (refs.btnDoneDraw) {
-    refs.btnDoneDraw.onclick = () => {
+/** Toggle drawing mode via the main toggle button */
+function setupDrawToggleButton() {
+  if (!refs.btnToggleDraw) return;
+  
+  refs.btnToggleDraw.onclick = () => {
+    const isEnabled = refs.btnToggleDraw.getAttribute('aria-pressed') === 'true';
+    if (isEnabled) {
       disableDrawingMode();
-      // Also toggle the main drawing toggle button
-      ui.toggleDrawMode(refs);
-    };
-  }
+    } else {
+      enableDrawingMode();
+    }
+  };
 }
 
 /** Setup canvas drawing event handlers (pointer events, keyboard) */

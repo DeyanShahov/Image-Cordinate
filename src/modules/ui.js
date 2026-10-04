@@ -114,7 +114,6 @@ export function createRefs(root = document) {
     drawCanvas: pick('draw-canvas'),
     btnUndo: pick('btn-undo'),
     btnClearDraw: pick('btn-clear-draw'),
-    btnDoneDraw: pick('btn-done-draw'),
     drawWidthSelect: pick('draw-width'),
     drawColorBtns: root.querySelectorAll('.draw-color'),
     btnToggleDraw: pick('btn-toggle-draw'),
@@ -635,35 +634,12 @@ export function resizeDrawCanvas(refs, displayWidth, displayHeight) {
   // The drawing controller will handle internal canvas sizing via setDisplaySize
 }
 
-/** Initialize the drawing toggle button */
+/** Initialize the drawing toggle button - makes it visible */
 export function initDrawToggle(refs) {
   if (!refs.btnToggleDraw || !refs.drawToolbar) return;
   
   refs.btnToggleDraw.hidden = false;
-  
-  refs.btnToggleDraw.onclick = () => {
-    toggleDrawMode(refs);
-  };
-}
-
-/** Toggle drawing mode on/off */
-export function toggleDrawMode(refs) {
-  if (!refs.btnToggleDraw || !refs.drawToolbar || !refs.drawCanvas) return;
-  
-  const isEnabled = refs.btnToggleDraw.getAttribute('aria-pressed') === 'true';
-  const newEnabled = !isEnabled;
-  
-  refs.btnToggleDraw.setAttribute('aria-pressed', String(newEnabled));
-  refs.drawToolbar.hidden = !newEnabled;
-  refs.drawCanvas.style.pointerEvents = newEnabled ? 'auto' : 'none';
-  
-  const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-  if (textSpan) {
-    textSpan.textContent = newEnabled ? 'Готово' : 'Рисувай';
-  }
-  
-  // Return new state for external handling
-  return newEnabled;
+  // Note: onclick handler is set by main.js via setupDrawToggleButton()
 }
 
 /** Reset drawing mode to disabled */

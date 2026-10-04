@@ -712,6 +712,48 @@
   display: block;
 }
 
+/* ------------- Meta toggle & panel ------------- */
+
+.meta-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.meta-toggle__icon {
+  transition: transform 0.2s ease;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.meta-toggle[aria-expanded="true"] .meta-toggle__icon {
+  transform: rotate(180deg);
+}
+
+.meta-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.meta-panel .meta {
+  margin: 0;
+  padding: var(--space-3);
+}
+
+@media (min-width: 720px) {
+  .meta-toggle {
+    width: auto;
+    min-width: 280px;
+  }
+}
+
 /* ------------- QR code ------------- */
 
 .qr {

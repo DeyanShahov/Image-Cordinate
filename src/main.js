@@ -811,6 +811,9 @@ function showResult(result, { device = null, address = getState().address } = {}
   ui.renderSaveLabel(refs, { saved: Boolean(result.recordId), hasDrawingChanges: false });
   ui.setReviewVisible(refs, true);
 
+  // Initialize metadata toggle (show button, start collapsed)
+  ui.initMetaToggle(refs);
+
   // Navigation actions: only meaningful when the photo has a fix at all.
   const hasFix = Boolean(result.fix && Number.isFinite(result.fix.latitude));
   ui.updateNavigationButtons(refs, { hasFix });
@@ -886,6 +889,8 @@ function clearResult() {
   ui.setReviewNote(refs, null);
   ui.renderMapPreview(refs, null, null, null);
   ui.renderSaveLabel(refs, { saved: false, hasDrawingChanges: false });
+  // Reset metadata panel to collapsed state and hide button
+  ui.resetMetaPanel(refs);
   setState({ result: null, phase: PHASES.LIVE });
 }
 

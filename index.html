@@ -133,7 +133,15 @@
               ></textarea>
               <p id="review-comment-hint" class="comment__hint hint"></p>
             </div>
-            <ul id="review-meta" class="meta"></ul>
+            
+            <button id="btn-toggle-meta" class="btn btn--primary meta-toggle" aria-expanded="false" aria-controls="meta-panel" hidden>
+              <span class="meta-toggle__icon" aria-hidden="true">▼</span>
+              <span class="meta-toggle__text">Покажи информацията</span>
+            </button>
+            
+            <div id="meta-panel" class="meta-panel" hidden>
+              <ul id="review-meta" class="meta"></ul>
+            </div>
             <div id="map" class="map" aria-label="Карта с мястото на снимката"></div>
             <div id="map-preview" class="review__map-preview-container" hidden></div>
             <div id="qr-panel" class="qr" hidden></div>

@@ -89,6 +89,8 @@ export function createRefs(root = document) {
     reviewCommentHint: pick('review-comment-hint'),
     map: pick('map'),
     reviewNote: pick('review-note'),
+    btnToggleMeta: pick('btn-toggle-meta'),
+    metaPanel: pick('meta-panel'),
     btnDownload: pick('btn-download'),
     btnDownloadMap: pick('btn-download-map'),
     btnNavigate: pick('btn-navigate'),
@@ -236,6 +238,53 @@ export function renderMeta(refs, rows) {
     item.append(valueNode);
     refs.reviewMeta.append(item);
   }
+}
+
+/** Initialize the metadata toggle button and panel */
+export function initMetaToggle(refs) {
+  if (!refs.btnToggleMeta || !refs.metaPanel) return;
+  
+  refs.btnToggleMeta.hidden = false;
+  
+  refs.btnToggleMeta.onclick = () => {
+    toggleMetaPanel(refs);
+  };
+}
+
+/** Toggle the metadata panel visibility */
+export function toggleMetaPanel(refs) {
+  if (!refs.btnToggleMeta || !refs.metaPanel) return;
+  
+  const isExpanded = !refs.metaPanel.hidden;
+  const newExpanded = !isExpanded;
+  
+  refs.metaPanel.hidden = !newExpanded;
+  refs.btnToggleMeta.setAttribute('aria-expanded', String(newExpanded));
+  
+  const textSpan = refs.btnToggleMeta.querySelector('.meta-toggle__text');
+  const iconSpan = refs.btnToggleMeta.querySelector('.meta-toggle__icon');
+  
+  if (textSpan) {
+    textSpan.textContent = newExpanded ? 'Скрий информацията' : 'Покажи информацията';
+  }
+  if (iconSpan) {
+    iconSpan.textContent = newExpanded ? '▲' : '▼';
+  }
+}
+
+/** Reset metadata panel to collapsed state */
+export function resetMetaPanel(refs) {
+  if (!refs.btnToggleMeta || !refs.metaPanel) return;
+  
+  refs.metaPanel.hidden = true;
+  refs.btnToggleMeta.setAttribute('aria-expanded', 'false');
+  refs.btnToggleMeta.hidden = true;
+  
+  const textSpan = refs.btnToggleMeta.querySelector('.meta-toggle__text');
+  const iconSpan = refs.btnToggleMeta.querySelector('.meta-toggle__icon');
+  
+  if (textSpan) textSpan.textContent = 'Покажи информацията';
+  if (iconSpan) iconSpan.textContent = '▼';
 }
 
 export function renderReviewPhoto(refs, url) {

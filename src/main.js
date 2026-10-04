@@ -668,7 +668,15 @@ function initDrawingForReview(result) {
   if (refs.btnToggleDraw) {
     refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
     const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) textSpan.textContent = 'Рисувай';
+    if (textSpan) {
+      textSpan.textContent = 'Рисувай';
+      // Store reference to text span for future updates
+      refs.drawToggleText = textSpan;
+    } else {
+      console.warn('[initDrawingForReview] .draw-toggle__text span not found!');
+    }
+  } else {
+    console.warn('[initDrawingForReview] btnToggleDraw not found!');
   }
 
   // Setup toolbar event handlers (but keep toolbar hidden initially)
@@ -700,8 +708,17 @@ function enableDrawingMode() {
   // Update toggle button UI
   if (refs.btnToggleDraw) {
     refs.btnToggleDraw.setAttribute('aria-pressed', 'true');
-    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) textSpan.textContent = 'Готово';
+    // Use stored reference to text span, fallback to querySelector
+    const textSpan = refs.drawToggleText || refs.btnToggleDraw.querySelector('.draw-toggle__text');
+    if (textSpan) {
+      textSpan.textContent = 'Готово';
+      // Store reference for future use
+      refs.drawToggleText = textSpan;
+    } else {
+      console.warn('[enableDrawingMode] .draw-toggle__text span not found!');
+    }
+  } else {
+    console.warn('[enableDrawingMode] btnToggleDraw not found!');
   }
   
   // Update save button label
@@ -719,8 +736,17 @@ function disableDrawingMode() {
   // Update toggle button UI
   if (refs.btnToggleDraw) {
     refs.btnToggleDraw.setAttribute('aria-pressed', 'false');
-    const textSpan = refs.btnToggleDraw.querySelector('.draw-toggle__text');
-    if (textSpan) textSpan.textContent = 'Рисувай';
+    // Use stored reference to text span, fallback to querySelector
+    const textSpan = refs.drawToggleText || refs.btnToggleDraw.querySelector('.draw-toggle__text');
+    if (textSpan) {
+      textSpan.textContent = 'Рисувай';
+      // Store reference for future use
+      refs.drawToggleText = textSpan;
+    } else {
+      console.warn('[disableDrawingMode] .draw-toggle__text span not found!');
+    }
+  } else {
+    console.warn('[disableDrawingMode] btnToggleDraw not found!');
   }
   
   // Remove canvas drawing event handlers
@@ -766,6 +792,7 @@ function setupDrawToggleButton() {
   
   refs.btnToggleDraw.onclick = () => {
     const isEnabled = refs.btnToggleDraw.getAttribute('aria-pressed') === 'true';
+    console.log('[setupDrawToggleButton] Clicked, isEnabled:', isEnabled, 'btnToggleDraw:', refs.btnToggleDraw);
     if (isEnabled) {
       disableDrawingMode();
     } else {

@@ -890,6 +890,35 @@
   background: color-mix(in srgb, var(--accent) 15%, var(--surface-2));
 }
 
+/* Locked technician (current user) - visually distinct and non-removable */
+.service-checkbox.is-locked {
+  opacity: 0.65;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.service-checkbox.is-locked .service-checkbox__text::after {
+  content: ' 🔒';
+  font-size: 0.85em;
+}
+
+.service-checkbox.is-locked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+/* Disabled technician input field (locked) */
+.service-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+
+/* Lock icon next to the technician label */
+.locked-indicator {
+  font-size: 0.8em;
+  cursor: help;
+}
+
 .service-hint {
   margin: var(--space-2) 0 0 0;
   font-size: 0.8rem;

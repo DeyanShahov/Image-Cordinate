@@ -296,16 +296,23 @@ export function resetMetaPanel(refs) {
 
 /* ---------------------------------------------------------------- service info panel */
 
-/** Combine selected technician names into a single string */
-function combineTechnicians(checkboxes) {
+/** Combine selected technician names into a single string (locked technician always first) */
+function combineTechnicians(checkboxes, lockedTechnician = '') {
   const selected = Array.from(checkboxes)
     .filter(cb => cb.checked)
     .map(cb => cb.value);
+  if (lockedTechnician && !selected.includes(lockedTechnician)) {
+    selected.unshift(lockedTechnician);
+  }
   return selected.join(', ');
 }
 
-/** Initialize the service info toggle button and panel */
-export function initServiceToggle(refs) {
+/**
+ * Initialize the service info toggle button and panel.
+ * @param {object} refs
+ * @param {{ lockedTechnician?: string }} [options] - locked technician = current user
+ */
+export function initServiceToggle(refs, { lockedTechnician = '' } = {}) {
   if (!refs.btnToggleService || !refs.servicePanel) return;
 
   refs.btnToggleService.hidden = false;
@@ -314,13 +321,42 @@ export function initServiceToggle(refs) {
     toggleServicePanel(refs);
   };
 
+  // Locked technician: field is disabled, value pinned, lock icon added.
+  if (lockedTechnician && refs.serviceTechnician) {
+    refs.serviceTechnician.value = lockedTechnician;
+    refs.serviceTechnician.disabled = true;
+    refs.serviceTechnician.title =
+      'Този техник е автоматично зададен според вашия профил и не може да бъде променен';
+
+    const techField = refs.serviceTechnician.closest('.service-field');
+    if (techField && !techField.querySelector('.locked-indicator')) {
+      const lockIcon = document.createElement('span');
+      lockIcon.className = 'locked-indicator';
+      lockIcon.textContent = ' 🔒';
+      lockIcon.title = 'Заключено - автоматично зададен техник';
+      const label = techField.querySelector('.service-label');
+      if (label) label.appendChild(lockIcon);
+    }
+  }
+
   // Set up checkbox listeners for quick technician selection
   if (refs.serviceTechRadios && refs.serviceTechnician) {
     refs.serviceTechRadios.forEach(checkbox => {
+      // The locked technician checkbox is pinned: checked + disabled.
+      if (lockedTechnician && checkbox.value === lockedTechnician) {
+        checkbox.disabled = true;
+        checkbox.checked = true;
+        const lockLabel = checkbox.closest('.service-checkbox');
+        if (lockLabel) {
+          lockLabel.classList.add('is-checked', 'is-locked');
+          lockLabel.title = 'Този техник е автоматично избран според вашия профил';
+        }
+      }
+
       checkbox.addEventListener('change', (e) => {
         const checkboxes = refs.serviceTechRadios;
-        // Combine all selected names
-        refs.serviceTechnician.value = combineTechnicians(checkboxes);
+        // Combine all selected names, locked technician always included
+        refs.serviceTechnician.value = combineTechnicians(checkboxes, lockedTechnician);
         // Update visual state for all checkboxes
         checkboxes.forEach(cb => {
           const label = cb.closest('.service-checkbox');
@@ -333,7 +369,8 @@ export function initServiceToggle(refs) {
   }
 
   // Also update when technician field is manually edited - uncheck all checkboxes
-  if (refs.serviceTechnician) {
+  // (skipped when locked: the field is disabled anyway)
+  if (refs.serviceTechnician && !lockedTechnician) {
     refs.serviceTechnician.addEventListener('input', () => {
       // If user manually types, uncheck all quick-select checkboxes
       refs.serviceTechRadios.forEach(cb => {
@@ -348,7 +385,7 @@ export function initServiceToggle(refs) {
 
   // Set up input listeners to persist changes to localStorage
   const saveServiceInfo = () => {
-    const serviceInfo = collectServiceInfo(refs);
+    const serviceInfo = collectServiceInfo(refs, lockedTechnician);
     localStorage.setItem('serviceInfo', JSON.stringify(serviceInfo));
   };
 
@@ -358,7 +395,7 @@ export function initServiceToggle(refs) {
   if (refs.serviceProject) {
     refs.serviceProject.addEventListener('blur', saveServiceInfo);
   }
-  if (refs.serviceTechnician) {
+  if (refs.serviceTechnician && !lockedTechnician) {
     refs.serviceTechnician.addEventListener('blur', saveServiceInfo);
   }
 }
@@ -389,8 +426,12 @@ export function toggleServicePanel(refs) {
   }
 }
 
-/** Reset service panel to collapsed state */
-export function resetServicePanel(refs) {
+/**
+ * Reset service panel to collapsed state.
+ * @param {object} refs
+ * @param {string} [lockedTechnician] - technician to keep pinned after reset
+ */
+export function resetServicePanel(refs, lockedTechnician = '') {
   if (!refs.btnToggleService || !refs.servicePanel) return;
 
   refs.servicePanel.hidden = true;
@@ -403,53 +444,96 @@ export function resetServicePanel(refs) {
   if (textSpan) textSpan.textContent = 'Служебна информация';
   if (iconSpan) iconSpan.textContent = '▼';
   
-  // Reset form fields to defaults
+  // Reset form fields to defaults, but keep the locked technician pinned
   if (refs.serviceCompany) refs.serviceCompany.value = 'InfraLink';
   if (refs.serviceProject) refs.serviceProject.value = 'м10 до м80';
-  if (refs.serviceTechnician) refs.serviceTechnician.value = 'Техник 1';
+  if (refs.serviceTechnician) {
+    refs.serviceTechnician.value = lockedTechnician || 'Техник 1';
+    refs.serviceTechnician.disabled = Boolean(lockedTechnician);
+  }
   if (refs.serviceTechRadios) {
     refs.serviceTechRadios.forEach(cb => {
-      cb.checked = false;
       const label = cb.closest('.service-checkbox');
-      if (label) {
-        label.classList.remove('is-checked');
+      if (lockedTechnician && cb.value === lockedTechnician) {
+        cb.checked = true;
+        cb.disabled = true;
+        if (label) label.classList.add('is-checked', 'is-locked');
+      } else {
+        cb.checked = false;
+        cb.disabled = false;
+        if (label) label.classList.remove('is-checked', 'is-locked');
       }
     });
   }
 }
 
-/** Render service info from state into the form fields */
-export function renderServiceInfo(refs, serviceInfo) {
+/**
+ * Render service info from state into the form fields.
+ * @param {object} refs
+ * @param {object} serviceInfo
+ * @param {string} [lockedTechnician] - technician to pin in the field
+ */
+export function renderServiceInfo(refs, serviceInfo, lockedTechnician = '') {
   if (!serviceInfo) return;
   if (refs.serviceCompany) refs.serviceCompany.value = serviceInfo.company ?? 'InfraLink';
   if (refs.serviceProject) refs.serviceProject.value = serviceInfo.project ?? 'м10 до м80';
-  if (refs.serviceTechnician) refs.serviceTechnician.value = serviceInfo.technician ?? 'Техник 1';
+  if (refs.serviceTechnician) {
+    let technician = serviceInfo.technician ?? 'Техник 1';
+    if (lockedTechnician) {
+      // Locked technician always leads the list and the field stays read-only.
+      const rest = technician
+        .split(',')
+        .map(n => n.trim())
+        .filter(n => n && n.toLowerCase() !== lockedTechnician.toLowerCase());
+      technician = [lockedTechnician, ...rest].join(', ');
+      refs.serviceTechnician.disabled = true;
+      refs.serviceTechnician.title =
+        'Този техник е автоматично зададен според вашия профил и не може да бъде променен';
+    }
+    refs.serviceTechnician.value = technician;
+  }
   
   // Update checkbox selection based on technician field
   // Parse the technician string (comma-separated) and check matching checkboxes
-  if (refs.serviceTechRadios && serviceInfo.technician) {
-    const technicianNames = serviceInfo.technician
+  if (refs.serviceTechRadios && refs.serviceTechnician) {
+    const technicianNames = refs.serviceTechnician.value
       .split(',')
       .map(name => name.trim())
       .filter(name => name.length > 0);
     
     refs.serviceTechRadios.forEach(checkbox => {
-      const isChecked = technicianNames.includes(checkbox.value);
+      const isChecked = technicianNames.some(
+        n => n.toLowerCase() === checkbox.value.toLowerCase(),
+      );
       checkbox.checked = isChecked;
       const label = checkbox.closest('.service-checkbox');
       if (label) {
         label.classList.toggle('is-checked', isChecked);
       }
+      // Locked checkbox: forced checked + disabled
+      if (lockedTechnician && checkbox.value === lockedTechnician) {
+        checkbox.checked = true;
+        checkbox.disabled = true;
+        if (label) label.classList.add('is-checked', 'is-locked');
+      }
     });
   }
 }
 
-/** Collect service info from form fields into an object */
-export function collectServiceInfo(refs) {
+/**
+ * Collect service info from form fields into an object.
+ * @param {object} refs
+ * @param {string} [lockedTechnician] - technician guaranteed to be included
+ */
+export function collectServiceInfo(refs, lockedTechnician = '') {
+  let technician = refs.serviceTechnician?.value?.trim() ?? 'Техник 1';
+  if (lockedTechnician && !technician.toLowerCase().includes(lockedTechnician.toLowerCase())) {
+    technician = lockedTechnician + (technician ? ', ' + technician : '');
+  }
   return {
     company: refs.serviceCompany?.value?.trim() ?? 'InfraLink',
     project: refs.serviceProject?.value?.trim() ?? 'м10 до м80',
-    technician: refs.serviceTechnician?.value?.trim() ?? 'Техник 1',
+    technician,
   };
 }
 export function renderReviewPhoto(refs, url) {

@@ -5,6 +5,7 @@
 
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged as firebaseOnAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase.js';
+import { findTechnicianByUsername, initializeTechnicians } from './technicians.js';
 
 /**
  * Maps Firebase auth error codes to Bulgarian user-friendly messages
@@ -33,22 +34,30 @@ function getErrorMessage(error) {
 
 /**
  * Sign in with username (becomes email) and password
+ * Also initializes technicians and checks for technician match
  * @param {string} username - Username (will become username@gmail.com)
  * @param {string} password - Password
- * @returns {Promise<{user: User, error: null} | {user: null, error: string}>}
+ * @returns {Promise<{user: User, error: null, matchedTechnician: Object|null} | {user: null, error: string, matchedTechnician: null}>}
  */
 export async function login(username, password) {
   if (!username || !password) {
-    return { user: null, error: 'Моля, попълнете всички полета.' };
+    return { user: null, error: 'Моля, попълнете всички полета.', matchedTechnician: null };
   }
 
   const email = `${username.trim().toLowerCase()}@gmail.com`;
 
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    return { user: userCredential.user, error: null };
+    
+    // Initialize technicians service
+    await initializeTechnicians();
+    
+    // Check if username matches a technician (case-insensitive)
+    const matchedTechnician = findTechnicianByUsername(username);
+    
+    return { user: userCredential.user, error: null, matchedTechnician };
   } catch (error) {
-    return { user: null, error: getErrorMessage(error) };
+    return { user: null, error: getErrorMessage(error), matchedTechnician: null };
   }
 }
 
@@ -89,5 +98,15 @@ export function onAuthStateChanged(callback) {
  */
 export function getUserDisplayName(user) {
   if (!user?.email) return 'Потребител';
+  return user.email.split('@')[0];
+}
+
+/**
+ * Get username from user (email prefix before @)
+ * @param {User | null} user
+ * @returns {string}
+ */
+export function getUsername(user) {
+  if (!user?.email) return '';
   return user.email.split('@')[0];
 }

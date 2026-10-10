@@ -5,14 +5,19 @@
  * Renders the user menu (top-right) with the signed-in user name and a logout action.
  */
 
-import { onAuthStateChanged, logout as authLogout, getUserDisplayName } from './auth.js';
+import { onAuthStateChanged, logout as authLogout, getUserDisplayName, getUsername } from './auth.js';
 import { renderLoginForm, showToast } from './login-ui.js';
 import { initializeApp } from '../main.js';
+import { findTechnicianByUsername, initializeTechnicians } from './technicians.js';
 
 let currentUser = null;
+let currentUsername = null;
 let appInitialized = false;
 let loginCleanup = null;
 let menuBound = false;
+
+/** Store the matched technician for the current session */
+let matchedTechnician = null;
 
 const loginRoot = () => document.getElementById('login-root');
 const appRoot = () => document.getElementById('app-root');
@@ -37,7 +42,7 @@ export function showLogin() {
     login.hidden = false;
     if (!loginCleanup) {
       loginCleanup = renderLoginForm(login, {
-        onLoginSuccess: () => {
+        onLoginSuccess: (user) => {
           // onAuthStateChanged drives the actual view switch.
           showToast('Успешно влизане!', 'success', 2500);
         },
@@ -85,6 +90,14 @@ export function showApp() {
   }
 
   hideBoot();
+}
+
+/**
+ * Get the matched technician for the current session
+ * @returns {Object|null}
+ */
+export function getMatchedTechnician() {
+  return matchedTechnician;
 }
 
 /**
@@ -176,13 +189,30 @@ function renderUserMenu(user) {
 
 /**
  * Subscribes to Firebase auth state. Call once at startup.
+ *
+ * The technicians list is loaded from Firestore BEFORE the username is matched,
+ * so a fresh login (or a session restore) always sees the up-to-date roster.
  */
 export function initAuthListener() {
-  onAuthStateChanged((user) => {
+  onAuthStateChanged(async (user) => {
     currentUser = user;
     if (user) {
+      currentUsername = getUsername(user);
+      // Ensure the technician roster is loaded before matching (avoids the race
+      // where onAuthStateChanged fires before the Firestore fetch resolves).
+      try {
+        await initializeTechnicians();
+      } catch (error) {
+        console.warn('[app-shell] initializeTechnicians failed:', error);
+      }
+      matchedTechnician = findTechnicianByUsername(currentUsername);
+      if (matchedTechnician) {
+        console.log('[app-shell] Matched technician:', matchedTechnician.name);
+      }
       showApp();
     } else {
+      currentUsername = null;
+      matchedTechnician = null;
       showLogin();
     }
   });

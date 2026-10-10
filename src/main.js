@@ -38,9 +38,11 @@ import * as qr from './modules/qr.js';
 import * as share from './modules/share.js';
 import * as storage from './modules/storage.js';
 import * as ui from './modules/ui.js';
+import * as tech from './modules/technicians.js';
 import * as wakelock from './modules/wakelock.js';
 import * as watermark from './modules/watermark.js';
 import * as drawing from './modules/drawing.js';
+import { getMatchedTechnician } from './modules/app-shell.js';
 
 const refs = ui.createRefs();
 
@@ -887,10 +889,11 @@ function showResult(result, { device = null, address = getState().address } = {}
   ui.initMetaToggle(refs);
 
   // Initialize service info toggle (show button, start collapsed)
-  ui.initServiceToggle(refs);
+  const lockedName = getMatchedTechnician()?.name ?? '';
+  ui.initServiceToggle(refs, { lockedTechnician: lockedName });
 
   // Initialize and render service info
-  ui.renderServiceInfo(refs, getState().serviceInfo);
+  ui.renderServiceInfo(refs, getState().serviceInfo, lockedName);
 
   // Navigation actions: only meaningful when the photo has a fix at all.
   const hasFix = Boolean(result.fix && Number.isFinite(result.fix.latitude));
@@ -973,7 +976,7 @@ function clearResult() {
   // Reset metadata panel to collapsed state and hide button
   ui.resetMetaPanel(refs);
   // Reset service panel to collapsed state and hide button
-  ui.resetServicePanel(refs);
+  ui.resetServicePanel(refs, getMatchedTechnician()?.name ?? '');
   setState({ result: null, phase: PHASES.LIVE });
 }
 
@@ -1397,8 +1400,8 @@ async function saveToGallery() {
       }
     }
 
-    // Collect current service info from the form
-    const serviceInfo = ui.collectServiceInfo(refs);
+    // Collect current service info from the form (locked technician always included)
+    const serviceInfo = ui.collectServiceInfo(refs, getMatchedTechnician()?.name ?? '');
     // Save service info to localStorage for persistence
     saveServiceInfo(serviceInfo);
     // Update state with current service info
@@ -1896,8 +1899,30 @@ function init() {
     }
   }
 
-  // Initialize service info toggle
-  ui.initServiceToggle(refs);
+  // Initialize service info toggle with technician matching
+  // Initialize technicians service and get matched technician
+  tech.initializeTechnicians().then(() => {
+    const matched = getMatchedTechnician();
+    const lockedTechnicianName = matched?.name ?? '';
+    
+    // Re-initialize service toggle with locked technician
+    ui.initServiceToggle(refs, { lockedTechnician: lockedTechnicianName });
+    
+    // If there's a locked technician, update service info in state
+    if (lockedTechnicianName) {
+      const currentInfo = getState().serviceInfo;
+      setState({
+        serviceInfo: {
+          ...currentInfo,
+          technician: lockedTechnicianName + (currentInfo.technician ? ', ' + currentInfo.technician : ''),
+        },
+      });
+    }
+  }).catch((error) => {
+    console.warn('[main.js] Technicians service init failed:', error);
+    // Fallback: still show service toggle without locked technician
+    ui.initServiceToggle(refs);
+  });
 
   // Draft comment: show the initial "0/500" counter without touching the field on
   // every render (renderAll must never fight the phone keyboard for the caret).

@@ -8,16 +8,16 @@ import { decodeImage, createCanvas, canvasToBlob, imageSize } from '../utils/ima
 
 // Fixed palette: 3 colors (red, blue, green) - high contrast on photos
 export const DRAW_COLORS = Object.freeze([
-  { value: '#e53935', label: 'Червен' },
-  { value: '#1e88e5', label: 'Син' },
-  { value: '#43a047', label: 'Зелен' },
+  { value: '#e53935', label: 'Rot' },
+  { value: '#1e88e5', label: 'Blau' },
+  { value: '#43a047', label: 'Gr\u00fcn' },
 ]);
 
 // Fixed stroke widths: thin, medium, thick (in CSS pixels on the displayed image)
 export const DRAW_WIDTHS = Object.freeze([
-  { value: 2, label: 'Тънка (2px)' },
-  { value: 4, label: 'Средна (4px)' },
-  { value: 8, label: 'Дебела (8px)' },
+  { value: 2, label: 'D\u00fcnn (2px)' },
+  { value: 4, label: 'Mittel (4px)' },
+  { value: 8, label: 'Dick (8px)' },
 ]);
 /**
  * Creates a drawing controller bound to a canvas overlaying an image.
@@ -28,7 +28,7 @@ export const DRAW_WIDTHS = Object.freeze([
  */
 export function createDrawingController(canvas, imageNaturalWidth, imageNaturalHeight) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas 2D context недостъпен.');
+  if (!ctx) throw new Error('Canvas 2D context not available.');
 
   let displayWidth = 0;
   let displayHeight = 0;
@@ -97,29 +97,23 @@ function setDisplaySize(width, height) {
   }
 
   function setColor(color) {
-    if (DRAW_COLORS.some(c => c.value === color)) currentColor = color;
+    currentColor = color;
   }
 
   function setWidth(width) {
-    if (DRAW_WIDTHS.some(w => w.value === width)) currentWidth = width;
+    currentWidth = width;
   }
 
-  function startStroke(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    const pt = toImageCoords(clientX, clientY, rect);
-    currentStroke = {
-      points: [pt],
-      color: currentColor,
-      width: currentWidth,
-    };
+  function startStroke(clientX, clientY, canvasRect) {
+    const coords = toImageCoords(clientX, clientY, canvasRect);
+    currentStroke = { points: [coords], color: currentColor, width: currentWidth };
     isDrawing = true;
   }
 
-  function continueStroke(clientX, clientY) {
+  function continueStroke(clientX, clientY, canvasRect) {
     if (!isDrawing || !currentStroke) return;
-    const rect = canvas.getBoundingClientRect();
-    const pt = toImageCoords(clientX, clientY, rect);
-    currentStroke.points.push(pt);
+    const coords = toImageCoords(clientX, clientY, canvasRect);
+    currentStroke.points.push(coords);
     render();
   }
 
@@ -202,7 +196,7 @@ function setDisplaySize(width, height) {
 
     const bakeCanvas = createCanvas(width, height);
     const bakeCtx = bakeCanvas.getContext('2d');
-    if (!bakeCtx) throw new Error('Canvas 2D context недостъпен за bake.');
+    if (!bakeCtx) throw new Error('Canvas 2D context not available for bake.');
 
     bakeCtx.drawImage(image, 0, 0, width, height);
     if (typeof image.close === 'function') image.close();

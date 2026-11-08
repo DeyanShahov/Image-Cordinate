@@ -49,7 +49,7 @@ function wrapText(context, text, maxWidth, maxLines = 2) {
   }
   if (line && lines.length < maxLines) lines.push(line);
   if (lines.join(' ').length < String(text).length) {
-    lines[maxLines - 1] = `${lines[maxLines - 1] ?? ''}…`;
+    lines[maxLines - 1] = `${lines[maxLines - 1] ?? ''}\u2026`;
   }
   return lines;
 }
@@ -82,7 +82,7 @@ export async function withWatermark(blob, options = {}) {
 
   const canvas = createCanvas(width, height);
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas 2D context недостъпен.');
+  if (!context) throw new Error('Canvas 2D context not available.');
   context.drawImage(image, 0, 0, width, height);
   if (typeof image.close === 'function') image.close();
 
@@ -93,13 +93,13 @@ export async function withWatermark(blob, options = {}) {
   const lineHeight = Math.round(coordSize * 1.35);
 
   const lines = [];
-  lines.push({ text: hasFix ? formatDecimal(fix.latitude, fix.longitude) : 'Без GPS координати', size: coordSize, weight: '700' });
+  lines.push({ text: hasFix ? formatDecimal(fix.latitude, fix.longitude) : 'Keine GPS-Koordinaten', size: coordSize, weight: '700' });
   if (hasFix) lines.push({ text: formatDms(fix.latitude, fix.longitude), size: metaSize, weight: '500' });
   const metaBits = [];
-  if (hasFix && Number.isFinite(fix.accuracy)) metaBits.push(`точност ${formatAccuracy(fix.accuracy)}`);
+  if (hasFix && Number.isFinite(fix.accuracy)) metaBits.push(`Genauigkeit ${formatAccuracy(fix.accuracy)}`);
   if (hasFix && Number.isFinite(fix.altitude)) metaBits.push(formatAltitude(fix.altitude));
   metaBits.push(formatDateTime(capturedAt));
-  lines.push({ text: metaBits.join(' · '), size: metaSize, weight: '500' });
+  lines.push({ text: metaBits.join(' \u00b7 '), size: metaSize, weight: '500' });
   lines.push({ text: brand, size: Math.max(10, Math.round(metaSize * 0.85)), weight: '600' });
 
   context.font = `${metaSize}px system-ui, sans-serif`;
@@ -111,9 +111,9 @@ export async function withWatermark(blob, options = {}) {
 
   // Weather line (temperature + humidity) – added after address, before the panel is drawn.
   if (weather && Number.isFinite(weather.temperature) && Number.isFinite(weather.humidity)) {
-    const tempStr = `${Math.round(weather.temperature)}°C`;
+    const tempStr = `${Math.round(weather.temperature)}\u00b0C`;
     const humStr = `${Math.round(weather.humidity)}%`;
-    lines.push({ text: `🌡️ ${tempStr} · 💧 ${humStr}`, size: metaSize, weight: '500' });
+    lines.push({ text: `\uD83C\uDF21\uFE0F ${tempStr} \u00b7 \uD83D\uDCA7 ${humStr}`, size: metaSize, weight: '500' });
   }
 
   const panelHeight =

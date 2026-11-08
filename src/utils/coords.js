@@ -49,20 +49,20 @@ export function toMetreRational(metres) {
 }
 
 export function formatDecimal(latitude, longitude, precision = 6) {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '—';
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '\u2014';
   return `${latitude.toFixed(precision)}, ${longitude.toFixed(precision)}`;
 }
 
 export function dmsString(value, positive, negative) {
   const { degrees, minutes, seconds } = toDms(value);
   const hemisphere = value >= 0 ? positive : negative;
-  return `${degrees}°${String(minutes).padStart(2, '0')}'${seconds
+  return `${degrees}\u00b0${String(minutes).padStart(2, '0')}'${seconds
     .toFixed(1)
     .padStart(4, '0')}"${hemisphere}`;
 }
 
 export function formatDms(latitude, longitude) {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '—';
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '\u2014';
   return `${dmsString(latitude, 'N', 'S')} ${dmsString(longitude, 'E', 'W')}`;
 }
 
@@ -75,25 +75,25 @@ export function accuracyLevel(accuracy) {
 }
 
 export function formatAccuracy(accuracy) {
-  if (!Number.isFinite(accuracy)) return '—';
-  return accuracy < 1 ? `±${accuracy.toFixed(1)} m` : `±${Math.round(accuracy)} m`;
+  if (!Number.isFinite(accuracy)) return '\u2014';
+  return accuracy < 1 ? `\u00b1${accuracy.toFixed(1)} m` : `\u00b1${Math.round(accuracy)} m`;
 }
 
 export function formatAltitude(altitude, altitudeAccuracy) {
-  if (!Number.isFinite(altitude)) return '—';
-  const base = `${Math.round(altitude)} m н.в.`;
+  if (!Number.isFinite(altitude)) return '\u2014';
+  const base = `${Math.round(altitude)} m \u00fc.NN`;
   return Number.isFinite(altitudeAccuracy)
     ? `${base} (${formatAccuracy(altitudeAccuracy)})`
     : base;
 }
 
 export function formatDuration(totalSeconds) {
-  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '—';
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '\u2014';
   const seconds = Math.round(totalSeconds);
-  if (seconds < 60) return `${seconds} с`;
+  if (seconds < 60) return `${seconds} s`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} мин ${seconds % 60} с`;
-  return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+  if (minutes < 60) return `${minutes} min ${seconds % 60} s`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 /** Local timestamp for EXIF DateTime: "YYYY:MM:DD HH:MM:SS". */
@@ -120,8 +120,8 @@ export function formatExifGpsTime(date) {
   ];
 }
 
-export function formatDateTime(date, locale = 'bg-BG') {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '—';
+export function formatDateTime(date, locale = 'de-DE') {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '\u2014';
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }).format(
     date,
   );
@@ -163,17 +163,36 @@ export function makePhotoFilename(date, latitude, longitude, extension = 'jpg') 
   return `IMG_${stamp}${geo}.${extension}`;
 }
 
-/* ------------------------------------------------------------- navigation ---
- * Google Maps (web and app) can not read the GPS tags of a photo - it only
- * understands text, links, Plus Codes and `geo:` URIs. These helpers produce
- * exactly those formats, so a received photo (or a copied string) can be turned
- * into turn-by-turn navigation in one tap.
- */
+/* ------------------------------------------------------------- navigation --- */
 
-/** Google Maps parses exactly this and nothing else: "41.887234, 24.712345". */
 export function plainCoordinates(latitude, longitude, precision = 6) {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return `${latitude.toFixed(precision)}, ${longitude.toFixed(precision)}`;
+}
+
+/**
+ * OpenStreetMap nominatim reverse geocode.
+ * Free, no key required, but rate-limited (1 req/s). Use with care.
+ */
+export async function reverseGeocode(latitude, longitude, signal) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&accept-language=de`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) return null;
+  const data = await response.json();
+  return data.display_name ?? null;
+}
+
+/**
+ * OpenStreetMap nominatim forward geocode.
+ */
+export async function forwardGeocode(query, signal) {
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=de&limit=1`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data.length) return null;
+  return { latitude: Number(data[0].lat), longitude: Number(data[0].lon) };
 }
 
 /** Google Maps URLs API - opens directions to the point, no API key required. */
@@ -212,7 +231,7 @@ export function detectPlatform(userAgent = globalThis.navigator?.userAgent ?? ''
 }
 
 /**
- * Ordered list of URLs to try when the user taps "Навигирай".
+ * Ordered list of URLs to try when the user taps "Navigate".
  *
  * The caller walks the list and stops at the first URL that leaves the page (see
  * `openNavigationLinks` in main.js), which is the standard way to cope with apps
@@ -258,5 +277,5 @@ export function navigationText({ latitude, longitude, address = null, comment = 
   const text = lines.filter(Boolean).join('\n');
   if (!comment) return text;
   const oneLine = String(comment).replace(/\s*\n+\s*/g, ' ').trim();
-  return oneLine ? `${text}\n„${oneLine}“` : text;
+  return oneLine ? `${text}\n\u201e${oneLine}\u201c` : text;
 }

@@ -158,15 +158,20 @@ export async function withWatermark(blob, options = {}) {
   }
   context.restore();
 
-  // Optional QR code in the top-right corner: a scanner (or Google Lens) on another
-  // phone lands straight in Google Maps, no app required on the receiving side.
+  // Optional QR code in the bottom-right corner of the watermark panel.
   if (qrMatrix) {
     const qrSize = Math.max(96, Math.round(width * 0.2));
     const qrMargin = Math.round(width * 0.02);
+    // Position QR code at the right edge of the watermark panel, vertically centered.
+    const panelRight = width - padding * 1.2;
+    const panelTop = panelY - padding * 0.3;
+    // Ensure QR code fits within panel height (with small margin)
+    const maxQrSize = Math.max(0, panelHeight - padding * 0.4);
+    const constrainedQrSize = Math.min(qrSize, maxQrSize);
     paintQrMatrix(context, qrMatrix, {
-      x: width - qrSize - qrMargin,
-      y: qrMargin,
-      size: qrSize,
+      x: panelRight - constrainedQrSize,
+      y: panelTop + (panelHeight - constrainedQrSize) / 2,
+      size: constrainedQrSize,
       quietZone: 2,
       light: '#ffffff',
       dark: '#04080f',
